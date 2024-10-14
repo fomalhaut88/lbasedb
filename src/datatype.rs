@@ -3,17 +3,18 @@ use std::any::Any;
 use crate::utils::{to_bytes, from_bytes};
 
 
-pub enum Types {
+pub enum Datatype {
     Int,
     Float,
     // Bool,
-    // String(usize),
+    // ? String(usize),
     // Bytes(usize),
-    // Datetime,
+    // ? Datetime,
+    // ? Enum
 }
 
 
-impl Types {
+impl Datatype {
     pub fn to_bytes<'a>(&self, x: &'a dyn Any) -> Option<&'a [u8]> {
         match self {
             Self::Int => {
@@ -45,11 +46,11 @@ mod tests {
     #[test]
     fn test_to_bytes() {
         assert_eq!(
-            Types::Int.to_bytes(&65i64), 
+            Datatype::Int.to_bytes(&65i64), 
             Some([65, 0, 0, 0, 0, 0, 0, 0].as_ref())
         );
         assert_eq!(
-            Types::Float.to_bytes(&2.718281828f64), 
+            Datatype::Float.to_bytes(&2.718281828f64), 
             Some([155, 145, 4, 139, 10, 191, 5, 64].as_ref())
         );
     }
@@ -57,12 +58,12 @@ mod tests {
     #[test]
     fn test_from_bytes() {
         assert_eq!(
-            Types::Int.from_bytes(&[65, 0, 0, 0, 0, 0, 0, 0])
+            Datatype::Int.from_bytes(&[65, 0, 0, 0, 0, 0, 0, 0])
                 .downcast_ref::<i64>(), 
             Some(&65)
         );
         assert_eq!(
-            Types::Float.from_bytes(&[155, 145, 4, 139, 10, 191, 5, 64])
+            Datatype::Float.from_bytes(&[155, 145, 4, 139, 10, 191, 5, 64])
                 .downcast_ref::<f64>(), 
             Some(&2.718281828)
         );

@@ -2,13 +2,44 @@ pub mod utils;
 pub mod seq;
 pub mod col;
 pub mod list;
-pub mod types;
+pub mod datatype;
+pub mod dataset;
 
 pub use crate::utils::*;
 pub use crate::seq::*;
 pub use crate::col::*;
 pub use crate::list::*;
-pub use crate::types::*;
+pub use crate::datatype::*;
+pub use crate::dataset::*;
+
+
+use std::path::Path;
+
+
+pub struct Lbase {
+    path: String,
+}
+
+
+impl Lbase {
+    pub fn new(path: impl AsRef<Path> + ToString) -> Self {
+        Self {
+            path: path.to_string(),
+        }
+    }
+}
+
+
+pub struct FeedRecord {
+    name: [u8; 256],
+}
+
+
+pub struct ColRecord {
+    name: [u8; 256],
+    datatype: Datatype,
+    default: [u8; 8],
+}
 
 
 #[cfg(test)]
@@ -55,6 +86,9 @@ mod tests {
         let mut lst = List::<Item1, String>::new("./tmp/l1").await?;
         println!("{:?}", lst.list().await?);
 
+        lst.add(&Item1 { key: *b"qweasdrf", val: 25 }).await.ok();
+        println!("{:?}", lst.list().await?);
+
         lst.modify(&"qweasdrf".to_string(), &Item1 { key: *b"12345678", val: 28 }).await?;
         println!("{:?}", lst.list().await?);
 
@@ -69,6 +103,42 @@ mod tests {
 
         println!("{:?}", lst.detail(&"qweasdrf".to_string()).await?.val);
         println!("{:?}", lst.detail(&"12345678".to_string()).await.err().unwrap().kind());
+
+        // myfunc(&[("price", &25.0), ("block_num", &6152)]);
+
+        // Lbase
+        // let mut conn = Lbase::new("./tmp/lbase1").await?;
+
+        // conn.feed_add("usdt").await.ok();
+
+        // let feeds: Vec<String> = conn.feed_list().await?;
+        // println!("feeds = {:?}", feeds);
+
+        // conn.col_add("usdt", ("price", Datatype::Float, 0.0)).await.ok();
+        // conn.col_add("usdt", ("block_num", Datatype::Int, 0)).await.ok();
+
+        // let cols: Vec<(String, Datatype, &any Any)> = conn.col_list().await?;
+        // println!("cols = {:?}", cols);
+
+        // let ix = conn.push("usdt", &[
+        //     ("price", vec![25.2, 25.1]),
+        //     ("block_num", vec![6153, 6154]),
+        // ]).await?;
+
+        // conn.patch("usdt",
+        //     5, 6,
+        //     &[
+        //         ("price", vec![25.5]),
+        //     ]
+        // ).await?;
+
+        // let data: Dataset = conn.get("usdt", &["price"], 5, 8).await?;
+        // let data: Dataset = conn.get_all("usdt", &["price", "block_num"]).await?;
+
+        // conn.truncate("usdt", 10).await?;
+
+        println!("{:?}", std::mem::size_of::<FeedRecord>());
+        println!("{:?}", std::mem::size_of::<ColRecord>());
 
         // Return
         Ok(())
