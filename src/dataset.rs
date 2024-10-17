@@ -22,6 +22,7 @@ mod tests {
             ("empty", vec![]),
             ("integers", vec![&5i32, &6i32]),
             ("floats", vec![&0.25f64]),
+            // ("buffers", vec![vec![1u8, 2u8], vec![2u8, 3u8]].as_ref()),
         ];
 
         // Build a map
