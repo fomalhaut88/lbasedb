@@ -3,7 +3,7 @@ use std::hash::Hash;
 use std::collections::HashMap;
 
 use tokio::io::Result as TokioResult;
-use tokio::io::{Error, ErrorKind};
+use tokio::io::ErrorKind;
 
 use crate::col::Col;
 
@@ -25,7 +25,7 @@ pub struct List<T, K> {
 }
 
 
-impl<K: Clone + Eq + Hash + ToString, T: Clone + ListKeyTrait<K>> List<T, K> {
+impl<K: Clone + Eq + Hash, T: Clone + ListKeyTrait<K>> List<T, K> {
     /// Create a new `List` object located at `path`.
     pub async fn new(path: impl AsRef<Path>) -> TokioResult<Self> {
         let mut col = Col::<T>::new(path).await?;
@@ -48,7 +48,7 @@ impl<K: Clone + Eq + Hash + ToString, T: Clone + ListKeyTrait<K>> List<T, K> {
         if let Some(&ix) = self.ixmap.get(key) {
             self.col.get(ix).await
         } else {
-            Err(Error::new(ErrorKind::NotFound, key.to_string()))
+            Err(ErrorKind::NotFound.into())
         }
     }
 
@@ -60,7 +60,7 @@ impl<K: Clone + Eq + Hash + ToString, T: Clone + ListKeyTrait<K>> List<T, K> {
             self.ixmap.insert(key, ix);
             Ok(())
         } else {
-            Err(Error::new(ErrorKind::AlreadyExists, key.to_string()))
+            Err(ErrorKind::AlreadyExists.into())
         }
     }
 
@@ -74,7 +74,7 @@ impl<K: Clone + Eq + Hash + ToString, T: Clone + ListKeyTrait<K>> List<T, K> {
             self.ixmap.remove(key);
             Ok(())
         } else {
-            Err(Error::new(ErrorKind::NotFound, key.to_string()))
+            Err(ErrorKind::NotFound.into())
         }
     }
 
@@ -87,7 +87,7 @@ impl<K: Clone + Eq + Hash + ToString, T: Clone + ListKeyTrait<K>> List<T, K> {
                 self.col.update(ix, rec).await?;
                 Ok(())
             } else if self.ixmap.contains_key(&new_key) {
-                Err(Error::new(ErrorKind::AlreadyExists, new_key.to_string()))
+                Err(ErrorKind::AlreadyExists.into())
             } else {
                 self.col.update(ix, rec).await?;
                 self.ixmap.remove(key);
@@ -95,7 +95,7 @@ impl<K: Clone + Eq + Hash + ToString, T: Clone + ListKeyTrait<K>> List<T, K> {
                 Ok(())
             }
         } else {
-            Err(Error::new(ErrorKind::NotFound, key.to_string()))
+            Err(ErrorKind::NotFound.into())
         }
     }
 
