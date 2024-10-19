@@ -42,3 +42,36 @@ pub fn from_bytes_many<T: Sized>(block: &[u8]) -> &[T] {
     };
     data
 }
+
+
+pub fn str_to_bytes<const N: usize>(s: &str) -> [u8; N] {
+    let bytes = s.as_bytes();
+    let size = std::cmp::min(bytes.len(), N);
+    let mut buffer = [0u8; N];
+    buffer[..size].clone_from_slice(&bytes[..size]);
+    buffer
+}
+
+
+pub fn bytes_to_str(bytes: &[u8]) -> &str {
+    std::str::from_utf8(bytes).unwrap().trim_end_matches('\0')
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_str_to_bytes() {
+        assert_eq!(str_to_bytes("qwer"), [113, 119, 101, 114]);
+        assert_eq!(str_to_bytes("qwerty"), [113, 119, 101, 114]);
+        assert_eq!(str_to_bytes("qwe"), [113, 119, 101, 0]);
+    }
+
+    #[test]
+    fn test_bytes_to_str() {
+        assert_eq!(bytes_to_str(&[113, 119, 101, 114]), "qwer");
+        assert_eq!(bytes_to_str(&[113, 119, 101, 0, 0]), "qwe");
+    }
+}

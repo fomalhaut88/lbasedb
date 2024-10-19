@@ -3,6 +3,7 @@ use std::any::Any;
 use crate::utils::{to_bytes, from_bytes};
 
 
+#[derive(Debug, Clone)]
 pub enum Datatype {
     Int64,  // i64
     Float64,  // f64

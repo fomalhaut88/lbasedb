@@ -34,11 +34,10 @@ impl<T: Clone> Col<T> {
         self.seq.size().await
     }
 
-    /// Truncate the file setting a new size `new_size` in the number of units 
-    /// sized with `block_size`. `new_size` must be  not bigger than the 
-    /// total size, otherwise there can be unpredictable behavior.
-    pub async fn truncate(&self, new_size: usize) -> TokioResult<()> {
-        self.seq.truncate(new_size).await
+    /// Resize the file setting a new size `new_size` in the number of units 
+    /// sized with `block_size`.
+    pub async fn resize(&self, new_size: usize) -> TokioResult<()> {
+        self.seq.resize(new_size).await
     }
 
     /// Push the data `x` to the end.

@@ -33,6 +33,11 @@ impl<K: Clone + Eq + Hash, T: Clone + ListKeyTrait<K>> List<T, K> {
         Ok(Self { col, ixmap })
     }
 
+    /// Check whether the key exists.
+    pub fn exists(&self, key: &K) -> bool {
+        self.ixmap.contains_key(key)
+    }
+
     /// Size of the list.
     pub async fn size(&self) -> TokioResult<usize> {
         self.col.size().await
@@ -70,7 +75,7 @@ impl<K: Clone + Eq + Hash, T: Clone + ListKeyTrait<K>> List<T, K> {
             let size = self.col.size().await?;
             let rec = self.col.get(size - 1).await?;
             self.col.update(ix, &rec).await?;
-            self.col.truncate(size - 1).await?;
+            self.col.resize(size - 1).await?;
             self.ixmap.remove(key);
             Ok(())
         } else {

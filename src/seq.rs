@@ -41,10 +41,9 @@ impl Seq {
         Ok(data.len() as usize / self.block_size)
     }
 
-    /// Truncate the file setting a new size `new_size` in the number of units 
-    /// sized with `block_size`. `new_size` must be  not bigger than the 
-    /// total size, otherwise there can be unpredictable behavior.
-    pub async fn truncate(&self, new_size: usize) -> TokioResult<()> {
+    /// Resize the file setting a new size `new_size` in the number of units 
+    /// sized with `block_size`.
+    pub async fn resize(&self, new_size: usize) -> TokioResult<()> {
         let byte_size = (new_size * self.block_size) as u64;
         self.file.set_len(byte_size).await?;
         Ok(())
@@ -71,6 +70,7 @@ impl Seq {
         let pos = SeekFrom::Start(byte_ix);
         self.file.seek(pos).await?;
         self.file.read_exact(block).await?;
+        let m = self.file.metadata().await?;
         Ok(())
     }
 
@@ -84,5 +84,12 @@ impl Seq {
         self.file.write_all(block).await?;
         self.file.flush().await?;
         Ok(())
+    }
+
+    /// Allocate next `len` blocks with zeros.
+    pub async fn push_empty(&mut self, len: usize) -> TokioResult<usize> {
+        let block = vec![0u8; len * self.block_size];
+        let ix = self.push(&block).await?;
+        Ok(ix)
     }
 }
