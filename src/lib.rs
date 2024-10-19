@@ -1,7 +1,8 @@
+use std::fs::exists;
 use std::collections::HashMap;
 
 use tokio::io::Result as TokioResult;
-use tokio::fs::create_dir_all;
+use tokio::fs::{create_dir_all, create_dir, remove_dir_all, rename};
 
 pub mod utils;
 pub mod seq;
@@ -9,6 +10,7 @@ pub mod col;
 pub mod list;
 pub mod datatype;
 pub mod dataset;
+pub mod mgr;
 
 pub use crate::utils::*;
 pub use crate::seq::*;
@@ -16,96 +18,30 @@ pub use crate::col::*;
 pub use crate::list::*;
 pub use crate::datatype::*;
 pub use crate::dataset::*;
+pub use crate::mgr::*;
 
 
 use std::path::Path;
 
 
-pub struct Lbase {
-    pub path: String,
-    pub feed_mgr: List<FeedRecord, String>,
-    pub col_mgr: HashMap<String, List<ColRecord, String>>,
+pub struct Connection {
+    pub feed_mgr: FeedMgr,
 }
 
 
-impl Lbase {
+impl Connection {
     pub async fn new(path: &str) -> TokioResult<Self> {
-        let path = path.to_string();
-        create_dir_all(&path).await?;
-        let feed_mgr_path = Path::new(&path).join("feed.mgr");
-        let mut feed_mgr = List::new(feed_mgr_path).await?;
-        let col_mgr = Self::_load_col_mgr(&path, &mut feed_mgr).await?;
-        Ok(Self { path, feed_mgr, col_mgr })
+        let mut feed_mgr = FeedMgr::new(path).await?;
+        Ok(Self { feed_mgr })
     }
 
-    async fn _load_col_mgr(path: &str, 
-                           feed_mgr: &mut List<FeedRecord, String>) -> 
-            TokioResult<HashMap<String, List<ColRecord, String>>> {
-        let mut col_mgr = HashMap::new();
-
-        for rec in feed_mgr.list().await?.iter() {
-            let col_name = rec.key();
-            let col_dir = Path::new(path).join(&col_name);
-            create_dir_all(&col_dir).await?;
-            let col_mgr_path = col_dir.join("col.mgr");
-            let mgr = List::new(col_mgr_path).await?;
-            col_mgr.insert(col_name, mgr);
-        }
-
-        Ok(col_mgr)
+    pub fn path(&self) -> &str {
+        self.feed_mgr.path()
     }
-}
 
-
-pub struct FeedMgr {
-    path: String,
-    list: List<FeedRecord, String>,
-}
-
-
-pub struct ColMgr {
-    path: String,
-    list: List<ColRecord, String>,
-}
-
-
-#[derive(Debug, Clone)]
-pub struct FeedRecord {
-    name: [u8; 256],
-}
-
-
-impl FeedRecord {
-    pub fn new(name: &str) -> Self {
-        Self { name: str_to_bytes(name) }
-    }
-}
-
-
-impl ListKeyTrait<String> for FeedRecord {
-    fn key(&self) -> String {
-        bytes_to_str(&self.name).to_string()
-    }
-}
-
-
-#[derive(Debug, Clone)]
-pub struct ColRecord {
-    name: [u8; 256],
-    datatype: Datatype,
-}
-
-
-impl ColRecord {
-    pub fn new(name: &str, datatype: Datatype) -> Self {
-        Self { name: str_to_bytes(name), datatype }
-    }
-}
-
-
-impl ListKeyTrait<String> for ColRecord {
-    fn key(&self) -> String {
-        bytes_to_str(&self.name).to_string()
+    pub async fn push(&mut self, feed: &str) -> TokioResult<usize> {
+        // self.feed_mgr.col_mgr(feed);
+        Ok(0)
     }
 }
 
@@ -210,10 +146,22 @@ mod tests {
 
         // println!("{:?}", from_bytes::<f32>(&[0, 0, 0, 0]));
 
-        let mut conn = Lbase::new("./tmp/lbase1").await?;
+        let mut conn = Connection::new("./tmp/lbase1").await?;
 
-        if !conn.feed_mgr.exists(&"tab1".to_string()) {
-            conn.feed_mgr.add(&FeedRecord::new("tab1")).await?;
+        if !conn.feed_mgr.exists("tab1") {
+            conn.feed_mgr.add("tab1").await?;
+        }
+
+        println!("{:?}", conn.feed_mgr.list().await?);
+
+        conn.feed_mgr.rename("tab1", "tab2").await?;
+
+        println!("{:?}", conn.feed_mgr.list().await?);
+
+        println!("col_mgr tab2: {:?}", conn.feed_mgr.col_mgr("tab2"));
+
+        if conn.feed_mgr.exists("tab2") {
+            conn.feed_mgr.remove("tab2").await?;
         }
 
         println!("{:?}", conn.feed_mgr.list().await?);

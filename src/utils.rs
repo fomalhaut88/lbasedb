@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::mem::size_of;
 use std::slice::from_raw_parts;
 
@@ -58,6 +59,11 @@ pub fn bytes_to_str(bytes: &[u8]) -> &str {
 }
 
 
+pub fn path_concat(base: &str, path: &str) -> String {
+    Path::new(base).join(path).display().to_string()
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,5 +79,14 @@ mod tests {
     fn test_bytes_to_str() {
         assert_eq!(bytes_to_str(&[113, 119, 101, 114]), "qwer");
         assert_eq!(bytes_to_str(&[113, 119, 101, 0, 0]), "qwe");
+    }
+
+    #[test]
+    fn test_path_concat() {
+        assert_eq!(path_concat("qwe", "asd"), "qwe/asd".to_string());
+        assert_eq!(path_concat("qwe/asd", "zxc"), "qwe/asd/zxc".to_string());
+        assert_eq!(path_concat("qwe/asd", "zxc/"), "qwe/asd/zxc/".to_string());
+        assert_eq!(path_concat("qwe/asd/", "zxc"), "qwe/asd/zxc".to_string());
+        assert_eq!(path_concat("/qwe/asd", "zxc"), "/qwe/asd/zxc".to_string());
     }
 }

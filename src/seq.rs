@@ -9,6 +9,7 @@ use tokio::io::{SeekFrom, AsyncSeekExt, AsyncWriteExt, AsyncReadExt};
 /// low level asynchronous functions to read and write block of data
 /// represented as bytes. The stored content is managed as a sequence of
 /// blocks with the same size (`block_size`). Each block can be accessed by
+#[derive(Debug)]
 /// its index.
 pub struct Seq {
     file: File,
