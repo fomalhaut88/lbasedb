@@ -11,6 +11,28 @@ pub type Dataset<'a> = Vec<(&'a str, Vec<&'a dyn Any>)>;
 pub type DatasetAsMap<'a> = HashMap<&'a str, Vec<&'a dyn Any>>;
 
 
+/// Get size of the dataset. It works correctly for valid datasets because the 
+/// function returns the length of the first vector.
+pub fn get_size(ds: &Dataset) -> Option<usize> {
+    ds.get(0).map(|(_, v)| v.len())
+}
+
+
+/// Check if the dataset is valid that means all the vectors have the same size.
+pub fn is_valid(ds: &Dataset) -> bool {
+    // TODO: Consider that the types correspond to allowed datatypes.
+    get_size(ds).map(
+        |size| ds.iter().all(|(_, v)| v.len() == size)
+    ).unwrap_or(true)
+}
+
+
+/// Get keys of the dataset as iterator.
+pub fn get_keys<'a>(ds: &'a Dataset) -> impl Iterator<Item = &'a str> {
+    ds.iter().map(|(k, _)| *k)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

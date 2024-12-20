@@ -4,6 +4,10 @@ use tokio::fs::{File, OpenOptions};
 use tokio::io::Result as TokioResult;
 use tokio::io::{SeekFrom, AsyncSeekExt, AsyncWriteExt, AsyncReadExt};
 
+// TODO: Maybe it is necessary to implement throught tokio_uring 
+// (https://docs.rs/tokio-uring/latest/tokio_uring/) that supports a faster 
+// Linux interface. It provides `read_exact_at`, `write_all_at` and so on.
+
 
 /// `Seq` is a basic unit to work with the file system. It implements
 /// low level asynchronous functions to read and write block of data
@@ -71,7 +75,6 @@ impl Seq {
         let pos = SeekFrom::Start(byte_ix);
         self.file.seek(pos).await?;
         self.file.read_exact(block).await?;
-        let m = self.file.metadata().await?;
         Ok(())
     }
 

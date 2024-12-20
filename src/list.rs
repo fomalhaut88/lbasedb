@@ -109,7 +109,7 @@ impl<K: Clone + Eq + Hash, T: Clone + ListKeyTrait<K>> List<T, K> {
         Ok(col.get_all().await?
                 .iter().enumerate()
                 .map(|(ix, rec)| (rec.key(), ix))
-                .collect::<HashMap<K, usize>>()
+                .collect()
         )
     }
 }

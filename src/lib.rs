@@ -1,8 +1,11 @@
-use std::fs::exists;
-use std::collections::HashMap;
+// #![warn(missing_docs)]
+#![feature(test)]
 
-use tokio::io::Result as TokioResult;
-use tokio::fs::{create_dir_all, create_dir, remove_dir_all, rename};
+// use std::fs::exists;
+// use std::collections::HashMap;
+
+// use tokio::io::Result as TokioResult;
+// use tokio::fs::{create_dir_all, create_dir, remove_dir_all, rename};
 
 pub mod utils;
 pub mod seq;
@@ -10,7 +13,7 @@ pub mod col;
 pub mod list;
 pub mod datatype;
 pub mod dataset;
-pub mod mgr;
+// pub mod mgr;
 
 pub use crate::utils::*;
 pub use crate::seq::*;
@@ -18,32 +21,32 @@ pub use crate::col::*;
 pub use crate::list::*;
 pub use crate::datatype::*;
 pub use crate::dataset::*;
-pub use crate::mgr::*;
+// pub use crate::mgr::*;
 
 
-use std::path::Path;
+// use std::path::Path;
 
 
-pub struct Connection {
-    pub feed_mgr: FeedMgr,
-}
+// pub struct Connection {
+//     pub feed_mgr: FeedMgr,
+// }
 
 
-impl Connection {
-    pub async fn new(path: &str) -> TokioResult<Self> {
-        let mut feed_mgr = FeedMgr::new(path).await?;
-        Ok(Self { feed_mgr })
-    }
+// impl Connection {
+//     pub async fn new(path: &str) -> TokioResult<Self> {
+//         let mut feed_mgr = FeedMgr::new(path).await?;
+//         Ok(Self { feed_mgr })
+//     }
 
-    pub fn path(&self) -> &str {
-        self.feed_mgr.path()
-    }
+//     pub fn path(&self) -> &str {
+//         self.feed_mgr.path()
+//     }
 
-    pub async fn push(&mut self, feed: &str) -> TokioResult<usize> {
-        // self.feed_mgr.col_mgr(feed);
-        Ok(0)
-    }
-}
+//     pub async fn push(&mut self, feed: &str) -> TokioResult<usize> {
+//         // self.feed_mgr.col_mgr(feed);
+//         Ok(0)
+//     }
+// }
 
 
 #[cfg(test)]
@@ -146,27 +149,91 @@ mod tests {
 
         // println!("{:?}", from_bytes::<f32>(&[0, 0, 0, 0]));
 
-        let mut conn = Connection::new("./tmp/lbase1").await?;
+        // let mut conn = Connection::new("./tmp/lbase1").await?;
 
-        if !conn.feed_mgr.exists("tab1") {
-            conn.feed_mgr.add("tab1").await?;
-        }
+        // if !conn.feed_mgr.exists("tab1") {
+        //     conn.feed_mgr.add("tab1").await?;
+        // }
 
-        println!("{:?}", conn.feed_mgr.list().await?);
+        // println!("{:?}", conn.feed_mgr.list().await?);
 
-        conn.feed_mgr.rename("tab1", "tab2").await?;
+        // conn.feed_mgr.rename("tab1", "tab2").await?;
 
-        println!("{:?}", conn.feed_mgr.list().await?);
+        // println!("{:?}", conn.feed_mgr.list().await?);
 
-        println!("col_mgr tab2: {:?}", conn.feed_mgr.col_mgr("tab2"));
+        // println!("col_mgr tab2: {:?}", conn.feed_mgr.col_mgr("tab2"));
 
-        if conn.feed_mgr.exists("tab2") {
-            conn.feed_mgr.remove("tab2").await?;
-        }
+        // if conn.feed_mgr.exists("tab2") {
+        //     conn.feed_mgr.remove("tab2").await?;
+        // }
 
-        println!("{:?}", conn.feed_mgr.list().await?);
+        // println!("{:?}", conn.feed_mgr.list().await?);
 
         // Return
         Ok(())
     }
+
+    // #[tokio::test]
+    // async fn test2() -> tokio::io::Result<()> {
+    //     let mut conn = Connection2::new("./tmp/lbase1").await?;
+
+    //     if !conn.feed_exists("tab1") {
+    //         conn.feed_add("tab1").await?;
+    //     }
+
+    //     println!("{:?}", conn.feed_list().await?);
+    //     println!("{:?}", conn.feed_size("tab1"));
+
+    //     // conn.feed_remove("tab1").await?;
+    //     // conn.feed_rename("tab1", "tab2").await?;
+
+    //     if !conn.col_exists("tab1", "ts") {
+    //         conn.col_add("tab1", "ts", Datatype::Int32).await?;
+    //     }
+
+    //     if !conn.col_exists("tab1", "x") {
+    //         conn.col_add("tab1", "x", Datatype::Float32).await?;
+    //     }
+
+    //     if !conn.col_exists("tab1", "y") {
+    //         conn.col_add("tab1", "y", Datatype::Float32).await?;
+    //     }
+
+    //     println!("{:?}", conn.col_list("tab1").await?);
+
+    //     // println!("{:?}", conn.col_datatype("tab1", "x").await?);
+    //     // conn.col_remove("tab1", "y").await?;
+    //     // conn.col_rename("tab1", "x", "z").await?;  // Type cannot be modified because of the block_size
+
+    //     let ds = vec![
+    //         ("ts", vec![60, 65]),
+    //         ("x", vec![2.5, 3.5]),
+    //         ("y", vec![1.0, -1.0]),
+    //     ];
+    //     conn.data_push("tab1", &ds).await?;  // Works as resize + update
+    //     // conn.data_push_one("tab1", &vec![
+    //     //      ("ts", 70),
+    //     //      ("x", 4.0),
+    //     //      ("y", 2.0),
+    //     // ]).await?;  // Works as data_push, modifying the dataset
+
+    //     conn.data_update("tab1", 1, &vec![
+    //         ("y", vec![-2.0]),
+    //     ]).await?;
+    //     // conn.data_update_one("tab1", 2, &vec![
+    //     //     ("y", -2.0),
+    //     // ]).await?;
+
+    //     // conn.feed_resize("tab1", 10).await?;
+
+    //     let ds = conn.data_get("tab1", 1, 2, &["x", "y"]).await?;
+
+    //     let ix = conn.data_search("tab1", "ts", 65).await?;
+    //     println!("{:?}", ix);
+
+    //     // ? DB Index (slowing down 'push')
+    //     // ? Heap storage
+
+    //     Ok(())
+    // }
 }
