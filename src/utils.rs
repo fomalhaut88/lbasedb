@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::mem::size_of;
 use std::slice::from_raw_parts;
 
@@ -45,6 +44,7 @@ pub fn from_bytes_many<T: Sized>(block: &[u8]) -> &[T] {
 }
 
 
+/// Represent string as bytes array with fixed size.
 pub fn str_to_bytes<const N: usize>(s: &str) -> [u8; N] {
     let bytes = s.as_bytes();
     let size = std::cmp::min(bytes.len(), N);
@@ -54,13 +54,22 @@ pub fn str_to_bytes<const N: usize>(s: &str) -> [u8; N] {
 }
 
 
+/// Represent bytes as string.
 pub fn bytes_to_str(bytes: &[u8]) -> &str {
     std::str::from_utf8(bytes).unwrap().trim_end_matches('\0')
 }
 
 
-pub fn path_concat(base: &str, path: &str) -> String {
-    Path::new(base).join(path).display().to_string()
+/// Concatenate given paths.
+#[macro_export]
+macro_rules! path_concat {
+    ($base:expr $(,$path:expr)*) => {{
+        let mut res = std::path::PathBuf::from($base);
+        $(
+            res = res.join($path);
+        )*
+        res.display().to_string()
+    }}
 }
 
 
@@ -83,10 +92,10 @@ mod tests {
 
     #[test]
     fn test_path_concat() {
-        assert_eq!(path_concat("qwe", "asd"), "qwe/asd".to_string());
-        assert_eq!(path_concat("qwe/asd", "zxc"), "qwe/asd/zxc".to_string());
-        assert_eq!(path_concat("qwe/asd", "zxc/"), "qwe/asd/zxc/".to_string());
-        assert_eq!(path_concat("qwe/asd/", "zxc"), "qwe/asd/zxc".to_string());
-        assert_eq!(path_concat("/qwe/asd", "zxc"), "/qwe/asd/zxc".to_string());
+        assert_eq!(path_concat!("qwe", "asd"), "qwe/asd".to_string());
+        assert_eq!(path_concat!("qwe/asd", "zxc"), "qwe/asd/zxc".to_string());
+        assert_eq!(path_concat!("qwe/asd", "zxc/"), "qwe/asd/zxc/".to_string());
+        assert_eq!(path_concat!("qwe/asd/", "zxc"), "qwe/asd/zxc".to_string());
+        assert_eq!(path_concat!("/qwe/asd", "zxc"), "/qwe/asd/zxc".to_string());
     }
 }

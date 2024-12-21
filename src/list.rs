@@ -49,6 +49,16 @@ impl<K: Clone + Eq + Hash, T: Clone + ListKeyTrait<K>> List<T, K> {
         self.col.get_all().await
     }
 
+    /// Mapping of all records by key.
+    pub async fn map(&mut self) -> TokioResult<HashMap<K, T>> {
+        Ok(
+            self.col.get_all().await?
+                .into_iter()
+                .map(|rec| (rec.key(), rec))
+                .collect()
+        )
+    }
+
     /// Get record by key.
     pub async fn detail(&mut self, key: &K) -> TokioResult<T> {
         if let Some(&ix) = self.ixmap.get(key) {

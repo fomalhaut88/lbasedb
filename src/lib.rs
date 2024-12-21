@@ -1,10 +1,13 @@
 // #![warn(missing_docs)]
 #![feature(test)]
+// #![feature(async_closure)]
 
 // use std::fs::exists;
-// use std::collections::HashMap;
+use std::collections::HashMap;
 
-// use tokio::io::Result as TokioResult;
+use tokio::io::Result as TokioResult;
+// use tokio::task::JoinSet;
+use tokio::io::ErrorKind;
 // use tokio::fs::{create_dir_all, create_dir, remove_dir_all, rename};
 
 pub mod utils;
@@ -47,6 +50,183 @@ pub use crate::dataset::*;
 //         Ok(0)
 //     }
 // }
+
+
+#[derive(Clone)]
+pub struct FeedItem {
+    name: String,
+}
+
+
+impl ListKeyTrait<String> for FeedItem {
+    fn key(&self) -> String {
+        self.name.clone()
+    }
+}
+
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct ColItem {
+    name: String,
+    datatype: Datatype,
+}
+
+
+impl ListKeyTrait<String> for ColItem {
+    fn key(&self) -> String {
+        self.name.clone()
+    }
+}
+
+
+pub struct Connection {
+    feed_list: List<FeedItem, String>,
+    feed_map: HashMap<String, FeedItem>,
+    col_list_mapping: HashMap<String, List<ColItem, String>>,
+    col_map_mapping: HashMap<String, HashMap<String, ColItem>>,
+    seq_mapping: HashMap<String, HashMap<String, Seq>>,
+    size_mapping: HashMap<String, usize>,
+}
+
+
+impl Connection {
+    pub async fn new(path: &str) -> TokioResult<Self> {
+        // List of feeds
+        let mut feed_list = List::<FeedItem, String>::new(
+            path_concat!(path, "feed.list")
+        ).await?;
+
+        // Mapping feed_name -> feed
+        let feed_map = feed_list.map().await?;
+
+        // Mapping feed_name -> col_list
+        let mut col_list_mapping = HashMap::new();
+
+        // Mapping feed_name -> col_name -> col
+        let mut col_map_mapping = HashMap::new();
+
+        // Mapping feed_name -> col_name -> seq
+        let mut seq_mapping = HashMap::new();
+
+        // Mapping feed_name -> size
+        let mut size_mapping = HashMap::new();
+
+        // Loop for feed names
+        for feed_name in feed_map.keys() {
+            // List of columns
+            let mut col_list = List::<ColItem, String>::new(
+                path_concat!(path, feed_name, "col.list")
+            ).await?;
+
+            // Mapping col_name -> col
+            let col_map = col_list.map().await?;
+
+            // Mapping col_name -> seq
+            seq_mapping.insert(feed_name.clone(), HashMap::new());
+
+            // Loop for cols
+            for (col_name, col_rec) in col_map.iter() {
+                // Create a seq
+                let seq = Seq::new(
+                    path_concat!(path, feed_name, format!("{}.col", col_name)),
+                    col_rec.datatype.size()
+                ).await?;
+
+                // Update size
+                if !size_mapping.contains_key(feed_name) {
+                    size_mapping.insert(feed_name.clone(), seq.size().await?);
+                }
+
+                // Add the seq to the mapping
+                seq_mapping.get_mut(feed_name).unwrap().insert(col_name.clone(), seq);
+            }
+
+            // Update mappings
+            col_list_mapping.insert(feed_name.clone(), col_list);
+            col_map_mapping.insert(feed_name.clone(), col_map);
+        }
+
+        Ok(Self {
+            feed_list,
+            feed_map,
+            col_list_mapping,
+            col_map_mapping,
+            seq_mapping,
+            size_mapping,
+        })
+    }
+
+    pub fn feed_list(&self) -> Vec<String> {
+        self.feed_map.keys().cloned().collect()
+    }
+
+    pub fn col_list(&self, feed_name: &str) -> Vec<String> {
+        self.col_map_mapping[feed_name].keys().cloned().collect()
+    }
+
+    pub fn col_rename(&mut self, feed_name: &str, name: &str, new_name: &str) -> TokioResult<()> {
+        if name != new_name {
+            if self.col_map_mapping[feed_name].contains_key(new_name) {
+                Err(ErrorKind::AlreadyExists.into())
+            } else {
+                // Remove old seq object in seq_mapping
+                // Rename seq file                
+                // Create a new seq object in seq_mapping
+                // Update in col_list_mapping
+                // Update in col_map_mapping
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn col_add(&mut self, feed_name: &str, name: &str, datatype: Datatype) -> TokioResult<()> {
+        if self.col_map_mapping[feed_name].contains_key(name) {
+            Err(ErrorKind::AlreadyExists.into())
+        } else {
+            // Create a new seq object in seq_mapping
+            // Resize seq object to match the other cols
+            // Update in col_list_mapping
+            // Update in col_map_mapping
+            Ok(())
+        }
+    }
+
+    pub fn col_remove(&mut self, feed_name: &str, name: &str) -> TokioResult<()> {
+        if !self.col_map_mapping[feed_name].contains_key(name) {
+            Err(ErrorKind::NotFound.into())
+        } else {
+            // Remove old seq object in seq_mapping
+            // Remove seq file
+            // Update in col_list_mapping
+            // Update in col_map_mapping
+            Ok(())
+        }
+    }
+
+    pub fn size_get(&self, feed_name: &str) -> usize {
+        self.size_mapping[feed_name]
+    }
+
+    pub async fn size_set(&mut self, feed_name: &str, size: usize) -> TokioResult<()> {
+        // Resize all seq
+        for seq in self.seq_mapping[feed_name].values() {
+            seq.resize(size).await?;
+        }
+        // let mut js = JoinSet::new();
+        // for seq in self.seq_mapping[feed_name].values() {
+        //     js.spawn(seq.resize(size));
+        // }
+        // js.join_all().await;
+
+        // Change the size
+        *self.size_mapping.get_mut(feed_name).unwrap() = size;
+
+        // Return
+        Ok(())
+    }
+}
 
 
 #[cfg(test)]

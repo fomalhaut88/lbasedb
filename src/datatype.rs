@@ -1,9 +1,10 @@
 use std::any::Any;
+use std::mem::size_of;
 
 use crate::utils::{to_bytes, from_bytes};
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Datatype {
     Int64,  // i64
     Float64,  // f64
@@ -58,6 +59,17 @@ impl Datatype {
                 v.resize(*len, 0u8);
                 Box::new(v)
             },
+        }
+    }
+
+    /// Size in bytes.
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Int64 => size_of::<i64>(),
+            Self::Float64 => size_of::<f64>(),
+            Self::Int32 => size_of::<i32>(),
+            Self::Float32 => size_of::<f32>(),
+            Self::Bytes(len) => *len,
         }
     }
 }
@@ -152,5 +164,14 @@ mod tests {
             Datatype::Bytes(6).from_bytes(block).downcast_ref::<Vec<u8>>(), 
             Some(&vec![155, 145, 4, 139, 0, 0])
         );
+    }
+
+    #[test]
+    fn test_size() {
+        assert_eq!(Datatype::Int64.size(), 8);
+        assert_eq!(Datatype::Int32.size(), 4);
+        assert_eq!(Datatype::Float64.size(), 8);
+        assert_eq!(Datatype::Float32.size(), 4);
+        assert_eq!(Datatype::Bytes(5).size(), 5);
     }
 }
