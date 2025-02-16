@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::mem::size_of;
+use std::str::FromStr;
 
 use crate::utils::{to_bytes, from_bytes};
 
@@ -70,6 +71,44 @@ impl Datatype {
             Self::Int32 => size_of::<i32>(),
             Self::Float32 => size_of::<f32>(),
             Self::Bytes(len) => *len,
+        }
+    }
+}
+
+
+impl ToString for Datatype {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Int64 => "Int64".to_string(),
+            Self::Float64 => "Float64".to_string(),
+            Self::Int32 => "Int32".to_string(),
+            Self::Float32 => "Float32".to_string(),
+            Self::Bytes(len) => format!("Bytes[{}]", len),
+        }
+    }
+}
+
+
+impl FromStr for Datatype {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Int64" => Ok(Self::Int64),
+            "Float64" => Ok(Self::Float64),
+            "Int32" => Ok(Self::Int32),
+            "Float32" => Ok(Self::Float32),
+            _ => {
+                let len_str = s
+                    .strip_prefix("Bytes[")
+                    .and_then(|s| s.strip_suffix(']'))
+                    .ok_or("Unknown datatype".to_string())?;
+
+                let len = len_str.parse::<usize>()
+                    .map_err(|_| "Unknown datatype".to_string())?;
+
+                Ok(Self::Bytes(len))
+            },
         }
     }
 }
@@ -173,5 +212,21 @@ mod tests {
         assert_eq!(Datatype::Float64.size(), 8);
         assert_eq!(Datatype::Float32.size(), 4);
         assert_eq!(Datatype::Bytes(5).size(), 5);
+    }
+
+    #[test]
+    fn test_convert_string() {
+        assert_eq!(Datatype::Int32.to_string(), "Int32");
+        assert_eq!(Datatype::Bytes(25).to_string(), "Bytes[25]");
+
+        assert_eq!("Int32".parse::<Datatype>(), Ok(Datatype::Int32));
+        assert_eq!("Bytes[25]".parse::<Datatype>(), Ok(Datatype::Bytes(25)));
+
+        assert_eq!("Boolean".parse::<Datatype>(), 
+                   Err("Unknown datatype".to_string()));
+        assert_eq!("Bytes[xxx]".parse::<Datatype>(), 
+                   Err("Unknown datatype".to_string()));
+        assert_eq!("Bytes[-12]".parse::<Datatype>(), 
+                   Err("Unknown datatype".to_string()));
     }
 }

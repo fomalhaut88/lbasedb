@@ -10,7 +10,6 @@ use crate::seq::Seq;
 
 /// `Col` implements a storage for the data of type `T`. It supports
 /// `push`, `get`, `update` asynchronous methods and their multiple extensions.
-#[derive(Debug)]
 pub struct Col<T> {
     seq: Seq,
     phantom: PhantomData<T>,

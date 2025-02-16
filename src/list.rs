@@ -19,7 +19,6 @@ pub trait ListKeyTrait<K> {
 /// in the file, so if there are too many records, `List` object may be 
 /// consuming. The main purpose of `List` the is inner data management between
 /// files, data types, structeres and so on in the DBSM.
-#[derive(Debug)]
 pub struct List<T, K> {
     col: Col<T>,
     ixmap: HashMap<K, usize>,
