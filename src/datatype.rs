@@ -15,6 +15,16 @@ pub enum Datatype {
 }
 
 
+#[derive(Debug, Clone)]
+pub enum Dataunit {
+    Int64(i64),
+    Int32(i32),
+    Float64(f64),
+    Float32(f32),
+    Bytes(Vec<u8>),
+}
+
+
 impl Datatype {
     /// Represent `x` as its byte slice without clonning, In case of mismatch
     /// `None` will be returned.
@@ -40,6 +50,48 @@ impl Datatype {
         }
     }
 
+    /// Represent `x` as its byte slice without clonning, In case of mismatch
+    /// `None` will be returned.
+    pub fn to_bytes2(&self, x: &Dataunit) -> Option<Vec<u8>> {
+        match self {
+            Self::Int64 => {
+                if let Dataunit::Int64(x) = x {
+                    Some(to_bytes(&x).to_vec())
+                } else {
+                    None
+                }
+            },
+            Self::Int32 => {
+                if let Dataunit::Int32(x) = x {
+                    Some(to_bytes(&x).to_vec())
+                } else {
+                    None
+                }
+            },
+            Self::Float64 => {
+                if let Dataunit::Float64(x) = x {
+                    Some(to_bytes(&x).to_vec())
+                } else {
+                    None
+                }
+            },
+            Self::Float32 => {
+                if let Dataunit::Float32(x) = x {
+                    Some(to_bytes(&x).to_vec())
+                } else {
+                    None
+                }
+            },
+            Self::Bytes(_) => {
+                if let Dataunit::Bytes(x) = x {
+                    Some(x.to_vec())
+                } else {
+                    None
+                }
+            },
+        }
+    }
+
     /// Converts a byte slice into a boxed data with copying.
     pub fn from_bytes<'a>(&self, block: &'a [u8]) -> Box<dyn Any> {
         match self {
@@ -59,6 +111,27 @@ impl Datatype {
                 let mut v = block.to_vec();
                 v.resize(*len, 0u8);
                 Box::new(v)
+            },
+        }
+    }
+
+    /// Converts a byte slice into a boxed data with copying.
+    pub fn from_bytes2(&self, block: &[u8]) -> Dataunit {
+        match self {
+            Self::Int64 => {
+                Dataunit::Int64(*from_bytes::<i64>(block))
+            },
+            Self::Int32 => {
+                Dataunit::Int32(*from_bytes::<i32>(block))
+            },
+            Self::Float64 => {
+                Dataunit::Float64(*from_bytes::<f64>(block))
+            },
+            Self::Float32 => {
+                Dataunit::Float32(*from_bytes::<f32>(block))
+            },
+            Self::Bytes(_) => {
+                Dataunit::Bytes(block.to_vec())
             },
         }
     }

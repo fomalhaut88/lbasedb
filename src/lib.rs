@@ -481,10 +481,25 @@ impl Connection {
         // js.join_all().await;
 
         // Change the size
-        self.feed_map.get_mut(feed_name).unwrap().size = size;
+        let feed_item = self.feed_map.get_mut(feed_name).unwrap();
+        feed_item.size = size;
+        self.feed_list.modify(&feed_name.to_string(), feed_item).await?;
 
         // Return
         Ok(())
+    }
+
+    pub async fn data_get(&mut self, feed_name: &str, ix: usize, size: usize, cols: &[&str]) -> TokioResult<Vec<(String, Vec<Dataunit>)>> {
+        let mut ds = vec![];
+        for col_name in cols.iter() {
+            let col = &self.col_map_mapping[feed_name][&col_name.to_string()];
+            let mut seq = self.seq_mapping.get_mut(feed_name).unwrap().get_mut(&col_name.to_string()).unwrap();
+            let mut block: Vec<u8> = vec![0u8; size * seq.block_size()];
+            seq.get(ix, &mut block).await?;
+            let series = block.chunks(seq.block_size()).map(|chunk| col.datatype.from_bytes2(chunk)).collect::<Vec<Dataunit>>();
+            ds.push((col_name.to_string(), series));
+        }
+        Ok(ds)
     }
 
     async fn _feed_open(&mut self, feed_name: &str, feed_item: FeedItem) -> TokioResult<()> {
