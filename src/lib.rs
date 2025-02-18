@@ -4,7 +4,7 @@
 
 // use std::fs::exists;
 // use std::hash::Hash;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tokio::io::Result as TokioResult;
 // use tokio::task::JoinSet;
@@ -467,13 +467,13 @@ impl Connection {
             .ok_or(ErrorKind::NotFound.into())
     }
 
-    pub async fn size_set(&mut self, feed_name: &str, size: usize) -> TokioResult<()> {
+    pub async fn size_set(&mut self, feed_name: &str, size: usize) -> TokioResult<usize> {
         // Resize all seq
         for seq in self.seq_mapping[feed_name].values() {
             seq.resize(size).await?;
         }
 
-        // TODO: implement parallel resizing
+        // TODO: Do it in parallel
         // let mut js = tokio::task::JoinSet::new();
         // for seq in self.seq_mapping[feed_name].values() {
         //     js.spawn(seq.resize(size));
@@ -482,24 +482,127 @@ impl Connection {
 
         // Change the size
         let feed_item = self.feed_map.get_mut(feed_name).unwrap();
+        let old_size = feed_item.size;
         feed_item.size = size;
         self.feed_list.modify(&feed_name.to_string(), feed_item).await?;
 
         // Return
+        Ok(old_size)
+    }
+
+    pub async fn data_get(&mut self, feed_name: &str, ix: usize, size: usize, cols: &[String]) -> TokioResult<Dataset> {
+        let mut ds = HashMap::new();
+        for col_name in cols.iter() {
+            // Get datatype from col item
+            let datatype = self.col_map_mapping[feed_name][col_name]
+                .datatype.clone();
+
+            // Get bytes from the seq file
+            let mut block = self.raw_get(
+                feed_name, col_name, ix, size * datatype.size()
+            ).await?;
+
+            // Convert bytes to a dataset series
+            let series = block.chunks(datatype.size())
+                .map(|chunk| datatype.from_bytes2(chunk))
+                .collect::<Vec<Dataunit>>();
+
+            // Insert series into the dataset
+            ds.insert(col_name.clone(), series);
+        }
+        Ok(ds)
+    }
+
+    pub async fn data_push(&mut self, feed_name: &str, ds: &Dataset) -> TokioResult<()> {
+        // Get the dataset size
+        let size = get_dataset_size(ds)?;
+
+        // If the dataset is not empty
+        if size > 0 {
+            // Get the current feed size into ix
+            let ix = self.feed_map.get_mut(feed_name).unwrap().size;
+
+            // Update the size of all cols
+            self.size_set(feed_name, ix + size).await?;
+
+            // Insert the data from the dataset
+            self.data_patch(feed_name, ix, ds).await?;
+        }
+
         Ok(())
     }
 
-    pub async fn data_get(&mut self, feed_name: &str, ix: usize, size: usize, cols: &[&str]) -> TokioResult<Vec<(String, Vec<Dataunit>)>> {
-        let mut ds = vec![];
-        for col_name in cols.iter() {
-            let col = &self.col_map_mapping[feed_name][&col_name.to_string()];
-            let mut seq = self.seq_mapping.get_mut(feed_name).unwrap().get_mut(&col_name.to_string()).unwrap();
-            let mut block: Vec<u8> = vec![0u8; size * seq.block_size()];
-            seq.get(ix, &mut block).await?;
-            let series = block.chunks(seq.block_size()).map(|chunk| col.datatype.from_bytes2(chunk)).collect::<Vec<Dataunit>>();
-            ds.push((col_name.to_string(), series));
+    pub async fn data_save(&mut self, feed_name: &str, ix: usize, ds: &Dataset) -> TokioResult<()> {
+        let cols = self.col_map_mapping[feed_name]
+            .keys().cloned().collect::<Vec<String>>();
+        self._data_update(feed_name, ix, ds, &cols).await?;
+        Ok(())
+    }
+
+    pub async fn data_patch(&mut self, feed_name: &str, ix: usize, ds: &Dataset) -> TokioResult<()> {
+        let cols = ds.keys().cloned().collect::<Vec<String>>();
+        self._data_update(feed_name, ix, ds, &cols).await?;
+        Ok(())
+    }
+
+    pub async fn raw_get(&mut self, feed_name: &str, col_name: &str, ix: usize, size: usize) -> TokioResult<Vec<u8>> {
+        // Get seq object
+        let mut seq = self.seq_mapping.get_mut(feed_name).unwrap()
+            .get_mut(col_name).unwrap();
+
+        // Get bytes from the seq file into a buffer
+        let mut block = vec![0u8; size];
+        seq.get(ix, &mut block).await?;
+
+        Ok(block)
+    }
+
+    pub async fn raw_set(&mut self, feed_name: &str, col_name: &str, ix: usize, block: &[u8]) -> TokioResult<()> {
+        // Get seq object
+        let mut seq = self.seq_mapping.get_mut(feed_name).unwrap()
+            .get_mut(col_name).unwrap();
+
+        // Update the seq file with the block
+        seq.update(ix, block).await?;  
+
+        Ok(())
+    }
+
+    async fn _data_update(&mut self, feed_name: &str, ix: usize, ds: &Dataset, cols: &[String]) -> TokioResult<()> {
+        // Get dataset size, it also check where the dataset is valid: 
+        // all series have the same size
+        let size = get_dataset_size(ds)?;
+
+        // If the dataset is not empty
+        if size > 0 {
+            // Iterate the colunms
+            // TODO: Do it in parallel
+            for col_name in cols.iter() {
+                // Update the seq file
+                self._seq_update(feed_name, col_name, ix, size, ds.get(col_name)).await?;
+            }
         }
-        Ok(ds)
+
+        Ok(())
+    }
+
+    async fn _seq_update(&mut self, feed_name: &str, col_name: &str, ix: usize, size: usize, series: Option<&Vec<Dataunit>>) -> TokioResult<()> {
+        // Get col item because we need the datatype
+        let col_item = &self.col_map_mapping[feed_name][col_name];
+
+        // Convert the series into a byte sequence
+        let block: Vec<u8> = if let Some(series) = series {
+            series.iter()
+                .map(|unit| col_item.datatype.to_bytes2(unit).unwrap())
+                .collect::<Vec<Vec<u8>>>().concat()
+        } else {
+            vec![0u8; size * col_item.datatype.size()]
+        };
+
+        // Update the seq file
+        self.raw_set(feed_name, col_name, ix, &block).await?;
+
+        Ok(())
     }
 
     async fn _feed_open(&mut self, feed_name: &str, feed_item: FeedItem) -> TokioResult<()> {
@@ -608,6 +711,17 @@ mod tests {
         // conn.col_remove("xyz", "x").await?;
 
         println!("Col list: {:?}", conn.col_list("xyz")?);
+
+        println!("Size: {:?}", conn.size_get("xyz")?);
+
+        let ds: Dataset = HashMap::from([
+            ("x".to_string(), vec![Dataunit::I(2), Dataunit::I(5)]),
+            ("y".to_string(), vec![Dataunit::F(2.15), Dataunit::F(5.55)]),
+        ]);
+
+        // conn.data_push("xyz", &ds).await?;
+
+        println!("ds = {:?}", conn.data_get("xyz", 0, 2, &["x".to_string(), "y".to_string()]).await?);
 
         Ok(())
 

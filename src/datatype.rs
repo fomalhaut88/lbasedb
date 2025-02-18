@@ -2,7 +2,17 @@ use std::any::Any;
 use std::mem::size_of;
 use std::str::FromStr;
 
+use base64::prelude::*;
+
 use crate::utils::{to_bytes, from_bytes};
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Dataunit {
+    I(i64),
+    F(f64),
+    S(String),
+}
 
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -12,16 +22,6 @@ pub enum Datatype {
     Int32,  // i32
     Float32,  // f32
     Bytes(usize),  // Vec<u8>
-}
-
-
-#[derive(Debug, Clone)]
-pub enum Dataunit {
-    Int64(i64),
-    Int32(i32),
-    Float64(f64),
-    Float32(f32),
-    Bytes(Vec<u8>),
 }
 
 
@@ -55,36 +55,38 @@ impl Datatype {
     pub fn to_bytes2(&self, x: &Dataunit) -> Option<Vec<u8>> {
         match self {
             Self::Int64 => {
-                if let Dataunit::Int64(x) = x {
-                    Some(to_bytes(&x).to_vec())
+                if let Dataunit::I(x) = x {
+                    Some(to_bytes(x).to_vec())
                 } else {
                     None
                 }
             },
             Self::Int32 => {
-                if let Dataunit::Int32(x) = x {
-                    Some(to_bytes(&x).to_vec())
+                if let Dataunit::I(x) = x {
+                    Some(to_bytes(&(*x as i32)).to_vec())
                 } else {
                     None
                 }
             },
             Self::Float64 => {
-                if let Dataunit::Float64(x) = x {
-                    Some(to_bytes(&x).to_vec())
+                if let Dataunit::F(x) = x {
+                    Some(to_bytes(x).to_vec())
                 } else {
                     None
                 }
             },
             Self::Float32 => {
-                if let Dataunit::Float32(x) = x {
-                    Some(to_bytes(&x).to_vec())
+                if let Dataunit::F(x) = x {
+                    Some(to_bytes(&(*x as f32)).to_vec())
                 } else {
                     None
                 }
             },
-            Self::Bytes(_) => {
-                if let Dataunit::Bytes(x) = x {
-                    Some(x.to_vec())
+            Self::Bytes(len) => {
+                if let Dataunit::S(x) = x {
+                    let mut block = BASE64_STANDARD.decode(x).unwrap();
+                    block.resize(*len, 0);
+                    Some(block)
                 } else {
                     None
                 }
@@ -119,19 +121,20 @@ impl Datatype {
     pub fn from_bytes2(&self, block: &[u8]) -> Dataunit {
         match self {
             Self::Int64 => {
-                Dataunit::Int64(*from_bytes::<i64>(block))
+                Dataunit::I(*from_bytes::<i64>(block))
             },
             Self::Int32 => {
-                Dataunit::Int32(*from_bytes::<i32>(block))
+                Dataunit::I((*from_bytes::<i32>(block)).into())
             },
             Self::Float64 => {
-                Dataunit::Float64(*from_bytes::<f64>(block))
+                Dataunit::F(*from_bytes::<f64>(block))
             },
             Self::Float32 => {
-                Dataunit::Float32(*from_bytes::<f32>(block))
+                Dataunit::F((*from_bytes::<f32>(block)).into())
             },
-            Self::Bytes(_) => {
-                Dataunit::Bytes(block.to_vec())
+            Self::Bytes(len) => {
+                let string = BASE64_STANDARD.encode(&block[..*len]);
+                Dataunit::S(string)
             },
         }
     }
@@ -301,5 +304,52 @@ mod tests {
                    Err("Unknown datatype".to_string()));
         assert_eq!("Bytes[-12]".parse::<Datatype>(), 
                    Err("Unknown datatype".to_string()));
+    }
+
+    #[test]
+    fn test_dataunit_convert() {
+        assert_eq!(
+            Datatype::Int64.to_bytes2(&Dataunit::I(25)).unwrap(), 
+            vec![25, 0, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            Datatype::Int32.to_bytes2(&Dataunit::I(25)).unwrap(), 
+            vec![25, 0, 0, 0]
+        );
+        assert_eq!(
+            Datatype::Float64.to_bytes2(&Dataunit::F(3.14)).unwrap(), 
+            vec![31, 133, 235, 81, 184, 30, 9, 64]
+        );
+        assert_eq!(
+            Datatype::Float32.to_bytes2(&Dataunit::F(3.14)).unwrap(), 
+            vec![195, 245, 72, 64]
+        );
+        assert_eq!(
+            Datatype::Bytes(5).to_bytes2(
+                &Dataunit::S("+uwgVQA=".to_string())
+            ).unwrap(), 
+            vec![250, 236, 32, 85, 0]
+        );
+
+        assert_eq!(
+            Datatype::Int64.from_bytes2(&[25, 0, 0, 0, 0, 0, 0, 0]), 
+            Dataunit::I(25)
+        );
+        assert_eq!(
+            Datatype::Int32.from_bytes2(&[25, 0, 0, 0]), 
+            Dataunit::I(25)
+        );
+        assert_eq!(
+            Datatype::Float64.from_bytes2(&[31, 133, 235, 81, 184, 30, 9, 64]), 
+            Dataunit::F(3.14)
+        );
+        assert_eq!(
+            Datatype::Float32.from_bytes2(&[195, 245, 72, 64]), 
+            Dataunit::F(3.140000104904175)
+        );
+        assert_eq!(
+            Datatype::Bytes(5).from_bytes2(&[250, 236, 32, 85, 0]), 
+            Dataunit::S("+uwgVQA=".to_string())
+        );
     }
 }
