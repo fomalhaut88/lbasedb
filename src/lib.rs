@@ -4,7 +4,7 @@
 
 // use std::fs::exists;
 // use std::hash::Hash;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use tokio::io::Result as TokioResult;
 // use tokio::task::JoinSet;
@@ -498,7 +498,7 @@ impl Connection {
                 .datatype.clone();
 
             // Get bytes from the seq file
-            let mut block = self.raw_get(
+            let block = self.raw_get(
                 feed_name, col_name, ix, size * datatype.size()
             ).await?;
 
@@ -547,7 +547,7 @@ impl Connection {
 
     pub async fn raw_get(&mut self, feed_name: &str, col_name: &str, ix: usize, size: usize) -> TokioResult<Vec<u8>> {
         // Get seq object
-        let mut seq = self.seq_mapping.get_mut(feed_name).unwrap()
+        let seq = self.seq_mapping.get_mut(feed_name).unwrap()
             .get_mut(col_name).unwrap();
 
         // Get bytes from the seq file into a buffer
@@ -559,7 +559,7 @@ impl Connection {
 
     pub async fn raw_set(&mut self, feed_name: &str, col_name: &str, ix: usize, block: &[u8]) -> TokioResult<()> {
         // Get seq object
-        let mut seq = self.seq_mapping.get_mut(feed_name).unwrap()
+        let seq = self.seq_mapping.get_mut(feed_name).unwrap()
             .get_mut(col_name).unwrap();
 
         // Update the seq file with the block
@@ -718,6 +718,7 @@ mod tests {
             ("x".to_string(), vec![Dataunit::I(2), Dataunit::I(5)]),
             ("y".to_string(), vec![Dataunit::F(2.15), Dataunit::F(5.55)]),
         ]);
+        println!("ds = {:?}", ds);
 
         // conn.data_push("xyz", &ds).await?;
 

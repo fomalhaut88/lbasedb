@@ -3,11 +3,13 @@ use std::mem::size_of;
 use std::str::FromStr;
 
 use base64::prelude::*;
+use serde::{Serialize, Deserialize};
 
 use crate::utils::{to_bytes, from_bytes};
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum Dataunit {
     I(i64),
     F(f64),
