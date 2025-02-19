@@ -77,8 +77,8 @@ impl Conn {
     }
 
     /// List the feeds.
-    pub fn feed_list(&self) -> Vec<String> {
-        self.feed_map.keys().cloned().collect()
+    pub fn feed_list(&self) -> Vec<FeedItem> {
+        self.feed_map.values().cloned().collect()
     }
 
     /// Check if the feed exists.

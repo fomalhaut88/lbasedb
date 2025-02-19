@@ -41,6 +41,11 @@ impl FeedItem {
         }
     }
 
+    /// Get name as string.
+    pub fn get_name(&self) -> String {
+        bytes_to_str(&self.name).to_string()
+    }
+
     /// Rename the feed.
     pub fn rename(&mut self, name: &str) {
         self.name = str_to_bytes::<MAX_NAME_SIZE>(name);
@@ -73,6 +78,16 @@ impl ColItem {
             name: str_to_bytes::<MAX_NAME_SIZE>(name),
             datatype: datatype.parse().unwrap(),
         }
+    }
+
+    /// Get name as string.
+    pub fn get_name(&self) -> String {
+        bytes_to_str(&self.name).to_string()
+    }
+
+    /// Get datatype as string.
+    pub fn get_datatype(&self) -> String {
+        self.datatype.to_string()
     }
 
     /// Rename the column.
