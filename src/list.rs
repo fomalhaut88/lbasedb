@@ -8,8 +8,9 @@ use tokio::io::ErrorKind;
 use crate::col::Col;
 
 
-/// Key function for a list record.
+/// Key trait so a struct can be stored in `List`.
 pub trait ListKeyTrait<K> {
+    /// Key function to calculate the unique key of a record.
     fn key(&self) -> K;
 }
 

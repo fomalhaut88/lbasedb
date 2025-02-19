@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::mem::size_of;
 use std::str::FromStr;
 
@@ -8,53 +7,47 @@ use serde::{Serialize, Deserialize};
 use crate::utils::{to_bytes, from_bytes};
 
 
+/// A dataunit for convenient integration. It supports integers, floats and
+/// strings that should represent fixed size bytes encrypted with Base64.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Dataunit {
+    /// Integer
     I(i64),
+
+    /// Float
     F(f64),
+
+    /// String
     S(String),
 }
 
 
+/// Allowed datatypes for the stored data. It manages the converting between
+/// basic datatypes and bytes in the file. Integers and floats cast and convert
+/// normally, bytes convert to strings and back according the Base64 algorithm.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Datatype {
-    Int64,  // i64
-    Float64,  // f64
-    Int32,  // i32
-    Float32,  // f32
-    Bytes(usize),  // Vec<u8>
+    /// 64-bit integer.
+    Int64,
+
+    /// 64-bit float.
+    Float64,
+
+    /// 32-bit integer.
+    Int32,
+
+    /// 32-bit float.
+    Float32,
+
+    /// Bytes with the fized size.
+    Bytes(usize),
 }
 
 
 impl Datatype {
-    /// Represent `x` as its byte slice without clonning, In case of mismatch
-    /// `None` will be returned.
-    pub fn to_bytes<'a>(&self, x: &'a dyn Any) -> Option<&'a [u8]> {
-        match self {
-            Self::Int64 => {
-                x.downcast_ref::<i64>().map(|v| to_bytes(v))
-            },
-            Self::Float64 => {
-                x.downcast_ref::<f64>().map(|v| to_bytes(v))
-            },
-            Self::Int32 => {
-                x.downcast_ref::<i32>().map(|v| to_bytes(v))
-            },
-            Self::Float32 => {
-                x.downcast_ref::<f32>().map(|v| to_bytes(v))
-            },
-            Self::Bytes(len) => {
-                x.downcast_ref::<Vec<u8>>()
-                    .filter(|v| v.len() == *len)
-                    .map(Vec::as_ref)
-            },
-        }
-    }
-
-    /// Represent `x` as its byte slice without clonning, In case of mismatch
-    /// `None` will be returned.
-    pub fn to_bytes2(&self, x: &Dataunit) -> Option<Vec<u8>> {
+    /// Represent `x` as its bytes, In case of mismatch `None` will be returned.
+    pub fn to_bytes(&self, x: &Dataunit) -> Option<Vec<u8>> {
         match self {
             Self::Int64 => {
                 if let Dataunit::I(x) = x {
@@ -96,31 +89,8 @@ impl Datatype {
         }
     }
 
-    /// Converts a byte slice into a boxed data with copying.
-    pub fn from_bytes<'a>(&self, block: &'a [u8]) -> Box<dyn Any> {
-        match self {
-            Self::Int64 => {
-                Box::new(*from_bytes::<i64>(block))
-            },
-            Self::Float64 => {
-                Box::new(*from_bytes::<f64>(block))
-            },
-            Self::Int32 => {
-                Box::new(*from_bytes::<i32>(block))
-            },
-            Self::Float32 => {
-                Box::new(*from_bytes::<f32>(block))
-            },
-            Self::Bytes(len) => {
-                let mut v = block.to_vec();
-                v.resize(*len, 0u8);
-                Box::new(v)
-            },
-        }
-    }
-
-    /// Converts a byte slice into a boxed data with copying.
-    pub fn from_bytes2(&self, block: &[u8]) -> Dataunit {
+    /// Converts a byte slice into a data unit.
+    pub fn from_bytes(&self, block: &[u8]) -> Dataunit {
         match self {
             Self::Int64 => {
                 Dataunit::I(*from_bytes::<i64>(block))
@@ -197,93 +167,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_to_bytes() {
-        // Common
-        assert_eq!(
-            Datatype::Int64.to_bytes(&65i64), 
-            Some([65, 0, 0, 0, 0, 0, 0, 0].as_ref())
-        );
-        assert_eq!(
-            Datatype::Int32.to_bytes(&65i32), 
-            Some([65, 0, 0, 0].as_ref())
-        );
-        assert_eq!(
-            Datatype::Float64.to_bytes(&2.718281828f64), 
-            Some([155, 145, 4, 139, 10, 191, 5, 64].as_ref())
-        );
-        assert_eq!(
-            Datatype::Float32.to_bytes(&2.7182818f32), 
-            Some([84, 248, 45, 64].as_ref())
-        );
-
-        // Type mismatch
-        assert_eq!(
-            Datatype::Int64.to_bytes(&65i32), 
-            None
-        );
-    }
-
-    #[test]
-    fn test_from_bytes() {
-        // Common
-        assert_eq!(
-            Datatype::Int64.from_bytes(&[65, 0, 0, 0, 0, 0, 0, 0])
-                .downcast_ref::<i64>(), 
-            Some(&65)
-        );
-        assert_eq!(
-            Datatype::Int32.from_bytes(&[65, 0, 0, 0])
-                .downcast_ref::<i32>(), 
-            Some(&65)
-        );
-        assert_eq!(
-            Datatype::Float64.from_bytes(&[155, 145, 4, 139, 10, 191, 5, 64])
-                .downcast_ref::<f64>(), 
-            Some(&2.718281828)
-        );
-        assert_eq!(
-            Datatype::Float32.from_bytes(&[84, 248, 45, 64])
-                .downcast_ref::<f32>(), 
-            Some(&2.7182818)
-        );
-
-        // Type mismatch
-        assert_eq!(
-            Datatype::Int64.from_bytes(&[65, 0, 0, 0, 0, 0, 0, 0])
-                .downcast_ref::<i32>(), 
-            None
-        );
-    }
-
-    #[test]
-    fn test_bytes() {
-        // Initial vector of bytes
-        let v: Vec<u8> = vec![155, 145, 4, 139];
-
-        // Wrong size
-        assert_eq!(Datatype::Bytes(3).to_bytes(&v), None);
-        assert_eq!(Datatype::Bytes(5).to_bytes(&v), None);
-
-        // Correct size, converting
-        let block: &[u8] = Datatype::Bytes(4).to_bytes(&v).unwrap();
-        assert_eq!(block, [155, 145, 4, 139]);
-
-        // Unpacking from block of bytes
-        assert_eq!(
-            Datatype::Bytes(4).from_bytes(block).downcast_ref::<Vec<u8>>(), 
-            Some(&vec![155, 145, 4, 139])
-        );
-        assert_eq!(
-            Datatype::Bytes(2).from_bytes(block).downcast_ref::<Vec<u8>>(), 
-            Some(&vec![155, 145])
-        );
-        assert_eq!(
-            Datatype::Bytes(6).from_bytes(block).downcast_ref::<Vec<u8>>(), 
-            Some(&vec![155, 145, 4, 139, 0, 0])
-        );
-    }
-
-    #[test]
     fn test_size() {
         assert_eq!(Datatype::Int64.size(), 8);
         assert_eq!(Datatype::Int32.size(), 4);
@@ -311,46 +194,46 @@ mod tests {
     #[test]
     fn test_dataunit_convert() {
         assert_eq!(
-            Datatype::Int64.to_bytes2(&Dataunit::I(25)).unwrap(), 
+            Datatype::Int64.to_bytes(&Dataunit::I(25)).unwrap(), 
             vec![25, 0, 0, 0, 0, 0, 0, 0]
         );
         assert_eq!(
-            Datatype::Int32.to_bytes2(&Dataunit::I(25)).unwrap(), 
+            Datatype::Int32.to_bytes(&Dataunit::I(25)).unwrap(), 
             vec![25, 0, 0, 0]
         );
         assert_eq!(
-            Datatype::Float64.to_bytes2(&Dataunit::F(3.14)).unwrap(), 
+            Datatype::Float64.to_bytes(&Dataunit::F(3.14)).unwrap(), 
             vec![31, 133, 235, 81, 184, 30, 9, 64]
         );
         assert_eq!(
-            Datatype::Float32.to_bytes2(&Dataunit::F(3.14)).unwrap(), 
+            Datatype::Float32.to_bytes(&Dataunit::F(3.14)).unwrap(), 
             vec![195, 245, 72, 64]
         );
         assert_eq!(
-            Datatype::Bytes(5).to_bytes2(
+            Datatype::Bytes(5).to_bytes(
                 &Dataunit::S("+uwgVQA=".to_string())
             ).unwrap(), 
             vec![250, 236, 32, 85, 0]
         );
 
         assert_eq!(
-            Datatype::Int64.from_bytes2(&[25, 0, 0, 0, 0, 0, 0, 0]), 
+            Datatype::Int64.from_bytes(&[25, 0, 0, 0, 0, 0, 0, 0]), 
             Dataunit::I(25)
         );
         assert_eq!(
-            Datatype::Int32.from_bytes2(&[25, 0, 0, 0]), 
+            Datatype::Int32.from_bytes(&[25, 0, 0, 0]), 
             Dataunit::I(25)
         );
         assert_eq!(
-            Datatype::Float64.from_bytes2(&[31, 133, 235, 81, 184, 30, 9, 64]), 
+            Datatype::Float64.from_bytes(&[31, 133, 235, 81, 184, 30, 9, 64]), 
             Dataunit::F(3.14)
         );
         assert_eq!(
-            Datatype::Float32.from_bytes2(&[195, 245, 72, 64]), 
+            Datatype::Float32.from_bytes(&[195, 245, 72, 64]), 
             Dataunit::F(3.140000104904175)
         );
         assert_eq!(
-            Datatype::Bytes(5).from_bytes2(&[250, 236, 32, 85, 0]), 
+            Datatype::Bytes(5).from_bytes(&[250, 236, 32, 85, 0]), 
             Dataunit::S("+uwgVQA=".to_string())
         );
     }
