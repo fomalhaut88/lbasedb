@@ -1,3 +1,8 @@
+//! `List` is a way to store structures in a file mainly for the management 
+//! purposes. Unlike `Seq` or `Col` philosophy it supports fetching by unique 
+//! key and removing, although it is a wrapper over `Col`. The performance
+//! of the operations is relatively low.
+
 use std::path::Path;
 use std::hash::Hash;
 use std::collections::HashMap;

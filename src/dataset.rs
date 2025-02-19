@@ -1,3 +1,7 @@
+//! `Dataset` is an alias for `HashMap` that keeps vectors of basic data
+//! (provided as `Dataunit`) by keys, so it represents a common dataset
+//! having columns (the keys) and rows.
+
 use std::collections::HashMap;
 
 use tokio::io::{ErrorKind, Result as TokioResult};
@@ -9,9 +13,6 @@ use crate::datatype::Dataunit;
 /// Dataunit as values. Since Dataunit is an enum over integers, float and 
 /// strings, they are the supported datatypes for the dataset.
 pub type Dataset = HashMap<String, Vec<Dataunit>>;
-
-// /// Alias for dataset represented as a HashMap.
-// pub type DatasetAsMap = HashMap<String, Vec<Dataunit>>;
 
 
 /// Get size of the dataset. It works correctly for valid datasets because the 

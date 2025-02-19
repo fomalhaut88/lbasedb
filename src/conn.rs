@@ -1,3 +1,6 @@
+//! `Conn` is a basic structure for the connection that provides the full
+//! interface to the DBMS.
+
 use std::collections::HashMap;
 
 use tokio::io::Result as TokioResult;

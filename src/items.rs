@@ -1,3 +1,7 @@
+//! `FeedItem` and `ColItem` are the basic entities of the DBMS that are 
+//! responsible for the options of feeds (like tables or collections) and
+//! cols (like columns of fields).
+
 use crate::utils::{str_to_bytes, bytes_to_str};
 use crate::datatype::Datatype;
 use crate::list::ListKeyTrait;

@@ -1,3 +1,6 @@
+//! Converting between datatypes for different purposes: into bytes and back,
+//! serializations, from and into strings and so on.
+
 use std::mem::size_of;
 use std::str::FromStr;
 
@@ -9,6 +12,8 @@ use crate::utils::{to_bytes, from_bytes};
 
 /// A dataunit for convenient integration. It supports integers, floats and
 /// strings that should represent fixed size bytes encrypted with Base64.
+/// It is compatible with `serde` serialization so it may be used in
+/// API interfaces like, for example, `actix_web` provides.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Dataunit {

@@ -1,3 +1,6 @@
+//! `Col` is a wrapper over `Seq` for an arbitrary sized datatype so it can be 
+//! represented as its bytes and stored in a file using the `Seq` interface.
+
 use std::mem::size_of;
 use std::path::Path;
 use std::marker::PhantomData;

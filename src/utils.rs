@@ -1,3 +1,5 @@
+//! Common functions of the library that mainly relate to byte converting.
+
 use std::mem::size_of;
 use std::slice::from_raw_parts;
 

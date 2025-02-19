@@ -1,3 +1,7 @@
+//! `Seq` is the basic structure to manage the data storing in a file. It 
+//! works exactly with byte blocks, supports asynchronous interface,
+//! allows to fetch, push and update data.
+
 use std::path::Path;
 
 use tokio::fs::{File, OpenOptions};
@@ -24,7 +28,7 @@ impl Seq {
     /// Create a `Seq` object located by the given `path` and having the given
     /// `block_size`. If no file exists, it creates an empty one.
     pub async fn new(path: impl AsRef<Path>, block_size: usize) -> 
-            TokioResult<Self> {
+                     TokioResult<Self> {
         let file = OpenOptions::new()
             .write(true)
             .read(true)
@@ -69,7 +73,7 @@ impl Seq {
     /// The size of `block` in bytes must be multiple of `block_size`, 
     /// otherwise there can be unpredictable behavior.
     pub async fn get(&mut self, ix: usize, block: &mut [u8]) -> 
-            TokioResult<()> {
+                     TokioResult<()> {
         let byte_ix = (ix * self.block_size) as u64;
         let pos = SeekFrom::Start(byte_ix);
         self.file.seek(pos).await?;
