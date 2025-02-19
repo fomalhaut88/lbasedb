@@ -1,14 +1,14 @@
 # lbasedb
 
 `lbasedb` is a powerful low level DBMS that is focused on dataset structure.
-The algorithms are optimized for the compact storing the data and for high
+The algorithms are optimized for the compact data storage and for high
 performance on get and append operations. Particularly, due to this, 
 deleting or indexing are not supported. The allowed data types are also
 limited (integers, floats and bytes) for making easy integration with
 C-like or similar common interfaces (like Python, CUDA, JSON and so on).
 The database has asynchronous access to the entities powered by `tokio`.
 It is supposed to be used for the data that have billions and more records
-and thousands columns of simple data types that can be appended without
+and thousands columns of simple data types that must be appended without
 extra overhead.
 
 ## Installation
@@ -23,7 +23,7 @@ cargo add lbasedb
 use lbasedb::prelude::*;
 use lbasedb::utils::bytes_to_str;
 
-let mut conn = Conn::new("./tmp/lb3").await?;
+let mut conn = Conn::new("./tmp/db").await?;
 
 if !conn.feed_exists("xyz") {
     conn.feed_add("xyz").await?;
