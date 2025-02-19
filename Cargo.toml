@@ -2,6 +2,10 @@
 name = "lbasedb"
 version = "0.1.0"
 edition = "2021"
+authors = ["Alexander Khlebushchev"]
+license = "MIT"
+repository = "https://github.com/fomalhaut88/lbasedb"
+description = "Low level DBMS in Rust focusing on datasets."
 
 [dependencies]
 base64 = "0.22.1"
