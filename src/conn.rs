@@ -285,16 +285,37 @@ impl Conn {
     /// and the columns `cols` with the offset `ix`.
     pub async fn data_get(&self, feed_name: &str, ix: usize, size: usize, 
                           cols: &[String]) -> TokioResult<Dataset> {
-        let mut ds = HashMap::new();
+        // Create a JoinSet object
+        let mut js = JoinSet::new();
+
         for col_name in cols.iter() {
             // Get datatype from col item
             let datatype = self.col_map_mapping.lock().await
                 [feed_name][col_name].datatype.clone();
 
-            // Get bytes from the seq file
-            let block = self.raw_get(
-                feed_name, col_name, ix, size * datatype.size()
-            ).await?;
+            // Get seq object
+            let seq = &self.seq_mapping.lock().await[feed_name][col_name];
+
+            // Clone the seq
+            let seq_clone = Arc::clone(seq);
+
+            // Clone col_name
+            let col_name_clone = col_name.clone();
+
+            // Spawn a concurrent task
+            js.spawn(async move {
+                let mut block = vec![0u8; size * datatype.size()];
+                seq_clone.lock().await.get(ix, &mut block).await.unwrap();
+                (block, datatype, col_name_clone)
+            });
+        }
+
+        // Create an empty dataset
+        let mut ds = HashMap::new();
+
+        while let Some(res) = js.join_next().await {
+            // Get block
+            let (block, datatype, col_name) = res?;
 
             // Convert bytes to a dataset series
             let series = block.chunks(datatype.size())
@@ -302,8 +323,9 @@ impl Conn {
                 .collect::<Vec<Dataunit>>();
 
             // Insert series into the dataset
-            ds.insert(col_name.clone(), series);
+            ds.insert(col_name, series);
         }
+
         Ok(ds)
     }
 
