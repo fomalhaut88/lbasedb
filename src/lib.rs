@@ -76,30 +76,30 @@ mod tests {
 
     #[tokio::test]
     async fn test() -> tokio::io::Result<()> {
-        let mut conn = Conn::new("./tmp/lb3").await?;
+        let conn = Conn::new("./tmp/lb3").await?;
 
-        if !conn.feed_exists("xyz") {
+        if !conn.feed_exists("xyz").await {
             conn.feed_add("xyz").await?;
         }
 
-        println!("Feed list: {:?}", conn.feed_list());
+        println!("Feed list: {:?}", conn.feed_list().await);
 
-        if !conn.col_exists("xyz", "x") {
+        if !conn.col_exists("xyz", "x").await {
             conn.col_add("xyz", "x", "Int64").await?;
         }
 
-        if !conn.col_exists("xyz", "y") {
+        if !conn.col_exists("xyz", "y").await {
             conn.col_add("xyz", "y", "Float64").await?;
         }
 
         println!(
             "Col list: {:?}", 
-            conn.col_list("xyz")?.iter()
+            conn.col_list("xyz").await?.iter()
                 .map(|i| bytes_to_str(&i.name).to_string())
                 .collect::<Vec<String>>()
         );
 
-        if conn.size_get("xyz")? == 0 {
+        if conn.size_get("xyz").await? == 0 {
             let ds: Dataset = std::collections::HashMap::from([
                 ("x".to_string(), vec![Dataunit::I(2), Dataunit::I(5)]),
                 ("y".to_string(), vec![Dataunit::F(2.15), Dataunit::F(5.55)]),
@@ -107,7 +107,7 @@ mod tests {
             conn.data_push("xyz", &ds).await?;
         }
 
-        println!("Size: {:?}", conn.size_get("xyz")?);
+        println!("Size: {:?}", conn.size_get("xyz").await?);
 
         let ds = conn.data_get("xyz", 0, 2, 
                                &["x".to_string(), "y".to_string()]).await?;
