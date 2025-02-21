@@ -1,11 +1,11 @@
 //! `Conn` is a basic structure for the connection that provides the full
 //! interface to the DBMS.
 
+use std::sync::Arc;
 use std::collections::HashMap;
 
-use tokio::io::Result as TokioResult;
-// use tokio::task::JoinSet;
-use tokio::io::ErrorKind;
+use tokio::io::{Result as TokioResult, ErrorKind};
+use tokio::task::JoinSet;
 use tokio::fs::{create_dir_all, remove_dir_all, rename};
 use tokio::sync::Mutex;
 
@@ -37,7 +37,7 @@ pub struct Conn {
     col_map_mapping: Mutex<HashMap<String, HashMap<String, ColItem>>>,
 
     // Seq mapping as double map feed key -> col key -> seq
-    seq_mapping: Mutex<HashMap<String, HashMap<String, Mutex<Seq>>>>,
+    seq_mapping: Mutex<HashMap<String, HashMap<String, Arc<Mutex<Seq>>>>>,
 }
 
 
@@ -260,16 +260,14 @@ impl Conn {
     pub async fn size_set(&self, feed_name: &str, size: usize) -> 
                           TokioResult<usize> {
         // Resize all seq
+        let mut js = JoinSet::new();
         for seq in self.seq_mapping.lock().await[feed_name].values() {
-            seq.lock().await.resize(size).await?;
+            let seq_clone = Arc::clone(seq);
+            js.spawn(async move {
+                seq_clone.lock().await.resize(size).await
+            });
         }
-
-        // TODO: Do it in parallel
-        // let mut js = tokio::task::JoinSet::new();
-        // for seq in self.seq_mapping[feed_name].values() {
-        //     js.spawn(seq.resize(size));
-        // }
-        // js.join_all().await;
+        js.join_all().await;
 
         // Change the size
         let mut feed_map = self.feed_map.lock().await;
@@ -373,7 +371,7 @@ impl Conn {
         let seq = &self.seq_mapping.lock().await[feed_name][col_name];
 
         // Update the seq file with the block
-        seq.lock().await.update(ix, block).await?;  
+        seq.lock().await.update(ix, block).await?;
 
         Ok(())
     }
@@ -386,13 +384,37 @@ impl Conn {
 
         // If the dataset is not empty
         if size > 0 {
+            // Create a join set
+            let mut js = JoinSet::new();
+
             // Iterate the colunms
-            // TODO: Do it in parallel
             for col_name in cols.iter() {
-                // Update the seq file
-                self._seq_update(feed_name, col_name, ix, size, 
-                                 ds.get(col_name)).await?;
+                // Get col item because we need the datatype
+                let col_item = &self.col_map_mapping.lock().await[feed_name][col_name];
+
+                // Convert the series into a byte sequence
+                let block: Vec<u8> = if let Some(series) = ds.get(col_name) {
+                    series.iter()
+                        .map(|unit| col_item.datatype.to_bytes(unit).unwrap())
+                        .collect::<Vec<Vec<u8>>>().concat()
+                } else {
+                    vec![0u8; size * col_item.datatype.size()]
+                };
+
+                // Get seq object
+                let seq = &self.seq_mapping.lock().await[feed_name][col_name];
+
+                // Clone the seq
+                let seq_clone = Arc::clone(seq);
+
+                // Update the seq file with the block in parralel
+                js.spawn(async move {
+                    seq_clone.lock().await.update(ix, &block).await
+                });
             }
+
+            // Execute in parralel
+            js.join_all().await;
         }
 
         Ok(())
@@ -465,7 +487,7 @@ impl Conn {
         self.col_map_mapping.lock().await.get_mut(feed_name).unwrap()
             .insert(col_name.to_string(), col_item);
         self.seq_mapping.lock().await.get_mut(feed_name).unwrap()
-            .insert(col_name.to_string(), Mutex::new(seq));
+            .insert(col_name.to_string(), Arc::new(Mutex::new(seq)));
 
         Ok(())
     }

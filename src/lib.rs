@@ -13,28 +13,32 @@
 //!
 //! ```ignore
 //! use lbasedb::prelude::*;
-//! use lbasedb::utils::bytes_to_str;
 //!
-//! let mut conn = Conn::new("./tmp/db").await?;
+//! let conn = Conn::new("./tmp/db").await?;
 //! 
-//! if !conn.feed_exists("xyz") {
+//! if !conn.feed_exists("xyz").await {
 //!     conn.feed_add("xyz").await?;
 //! }
 //! 
-//! println!("Feed list: {:?}", conn.feed_list());
+//! println!(
+//!     "Feed list: {:?}", 
+//!      conn.feed_list().await.iter()
+//!          .map(|i| i.get_name())
+//!          .collect::<Vec<String>>()
+//! );
 //! 
-//! if !conn.col_exists("xyz", "x") {
+//! if !conn.col_exists("xyz", "x").await {
 //!     conn.col_add("xyz", "x", "Int64").await?;
 //! }
 //! 
-//! if !conn.col_exists("xyz", "y") {
+//! if !conn.col_exists("xyz", "y").await {
 //!     conn.col_add("xyz", "y", "Float64").await?;
 //! }
 //! 
 //! println!(
 //!     "Col list: {:?}", 
 //!     conn.col_list("xyz")?.iter()
-//!         .map(|i| bytes_to_str(&i.name).to_string())
+//!         .map(|i| i.get_name())
 //!         .collect::<Vec<String>>()
 //! );
 //! 
@@ -67,7 +71,6 @@ pub mod conn;
 pub mod prelude;
 
 pub use crate::prelude::*;
-pub use crate::utils::bytes_to_str;
 
 
 #[cfg(test)]
@@ -82,7 +85,12 @@ mod tests {
             conn.feed_add("xyz").await?;
         }
 
-        println!("Feed list: {:?}", conn.feed_list().await);
+        println!(
+            "Feed list: {:?}", 
+            conn.feed_list().await.iter()
+                .map(|i| i.get_name())
+                .collect::<Vec<String>>()
+        );
 
         if !conn.col_exists("xyz", "x").await {
             conn.col_add("xyz", "x", "Int64").await?;
@@ -95,7 +103,7 @@ mod tests {
         println!(
             "Col list: {:?}", 
             conn.col_list("xyz").await?.iter()
-                .map(|i| bytes_to_str(&i.name).to_string())
+                .map(|i| i.get_name())
                 .collect::<Vec<String>>()
         );
 
