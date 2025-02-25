@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use tokio::io::{Result as TokioResult, ErrorKind};
 use tokio::task::JoinSet;
 use tokio::fs::{create_dir_all, remove_dir_all, rename};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::path_concat;
 use crate::seq::Seq;
@@ -25,19 +25,19 @@ pub struct Conn {
     path: String,
 
     // Feed list object to manage the feeds options
-    feed_list: Mutex<List<FeedItem, String>>,
+    feed_list: RwLock<List<FeedItem, String>>,
 
     // Feed mapping feed key -> feed
-    feed_map: Mutex<HashMap<String, FeedItem>>,
+    feed_map: RwLock<HashMap<String, FeedItem>>,
 
     // Col list objects that is a mapping feed key -> the list
-    col_list_mapping: Mutex<HashMap<String, List<ColItem, String>>>,
+    col_list_mapping: RwLock<HashMap<String, List<ColItem, String>>>,
 
     // Col mapping as double map feed key -> col key -> col
-    col_map_mapping: Mutex<HashMap<String, HashMap<String, ColItem>>>,
+    col_map_mapping: RwLock<HashMap<String, HashMap<String, ColItem>>>,
 
     // Seq mapping as double map feed key -> col key -> seq
-    seq_mapping: Mutex<HashMap<String, HashMap<String, Arc<Mutex<Seq>>>>>,
+    seq_mapping: RwLock<HashMap<String, HashMap<String, Arc<Mutex<Seq>>>>>,
 }
 
 
@@ -56,15 +56,15 @@ impl Conn {
         // Create instance
         let instance = Self {
             path: path.to_string(),
-            feed_list: Mutex::new(feed_list),
-            feed_map: Mutex::new(HashMap::new()),
-            col_list_mapping: Mutex::new(HashMap::new()),
-            col_map_mapping: Mutex::new(HashMap::new()),
-            seq_mapping: Mutex::new(HashMap::new()),
+            feed_list: RwLock::new(feed_list),
+            feed_map: RwLock::new(HashMap::new()),
+            col_list_mapping: RwLock::new(HashMap::new()),
+            col_map_mapping: RwLock::new(HashMap::new()),
+            seq_mapping: RwLock::new(HashMap::new()),
         };
 
         // Open all feeds
-        let feed_map = instance.feed_list.lock().await.map().await?;
+        let feed_map = instance.feed_list.write().await.map().await?;
         for (feed_name, feed_item) in feed_map.into_iter() {
             instance._feed_open(&feed_name, feed_item).await?;
         }
@@ -79,12 +79,12 @@ impl Conn {
 
     /// List the feeds.
     pub async fn feed_list(&self) -> Vec<FeedItem> {
-        self.feed_map.lock().await.values().cloned().collect()
+        self.feed_map.read().await.values().cloned().collect()
     }
 
     /// Check if the feed exists.
     pub async fn feed_exists(&self, feed_name: &str) -> bool {
-        self.feed_map.lock().await.contains_key(feed_name)
+        self.feed_map.read().await.contains_key(feed_name)
     }
 
     /// Add a new feed by its name.
@@ -99,7 +99,7 @@ impl Conn {
 
             // Insert a new record into the list
             let feed_item = FeedItem::new(feed_name);
-            self.feed_list.lock().await.add(&feed_item).await?;
+            self.feed_list.write().await.add(&feed_item).await?;
 
             // Open the feed
             self._feed_open(feed_name, feed_item).await?;
@@ -118,7 +118,7 @@ impl Conn {
             self._feed_close(feed_name).await;
 
             // Remove from the list
-            self.feed_list.lock().await.remove(&feed_name.to_string()).await?;
+            self.feed_list.write().await.remove(&feed_name.to_string()).await?;
 
             // Remove the directory
             let feed_path = path_concat!(self.path.clone(), feed_name);
@@ -141,7 +141,7 @@ impl Conn {
 
             // Update feed list
             feed_item.rename(name_new);
-            self.feed_list.lock().await
+            self.feed_list.write().await
                 .modify(&name.to_string(), &feed_item).await?;
 
             // Rename the directory
@@ -158,14 +158,14 @@ impl Conn {
 
     /// List columns of the feed.
     pub async fn col_list(&self, feed_name: &str) -> TokioResult<Vec<ColItem>> {
-        self.col_map_mapping.lock().await.get(feed_name)
+        self.col_map_mapping.read().await.get(feed_name)
             .map(|item| item.values().cloned().collect())
             .ok_or(ErrorKind::NotFound.into())
     }
 
     /// Check if the column exists in the feed.
     pub async fn col_exists(&self, feed_name: &str, col_name: &str) -> bool {
-        self.col_map_mapping.lock().await[feed_name].contains_key(col_name)
+        self.col_map_mapping.read().await[feed_name].contains_key(col_name)
     }
 
     /// Rename the column
@@ -183,7 +183,7 @@ impl Conn {
 
             // Update col list
             col_item.rename(name_new);
-            self.col_list_mapping.lock().await.get_mut(feed_name).unwrap()
+            self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
                 .modify(&name.to_string(), &col_item).await?;
 
             // Rename the seq file
@@ -211,15 +211,15 @@ impl Conn {
             let col_item = ColItem::new(col_name, datatype);
 
             // Add col item in the list
-            self.col_list_mapping.lock().await.get_mut(feed_name).unwrap()
+            self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
                 .add(&col_item).await?;
 
             // Open the col
             self._col_open(feed_name, col_name, col_item).await?;
 
             // Resize the seq
-            let size = self.feed_map.lock().await[feed_name].size;
-            let seq = &self.seq_mapping.lock().await[feed_name][col_name];
+            let size = self.feed_map.read().await[feed_name].size;
+            let seq = &self.seq_mapping.read().await[feed_name][col_name];
             seq.lock().await.resize(size).await?;
 
             Ok(())
@@ -238,7 +238,7 @@ impl Conn {
             self._col_close(feed_name, col_name).await;
 
             // Remove col item from the list
-            self.col_list_mapping.lock().await.get_mut(feed_name).unwrap()
+            self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
                 .remove(&col_name.to_string()).await?;
 
             // Remove seq file
@@ -251,7 +251,7 @@ impl Conn {
 
     /// Get the size of the feed.
     pub async fn size_get(&self, feed_name: &str) -> TokioResult<usize> {
-        self.feed_map.lock().await.get(feed_name)
+        self.feed_map.read().await.get(feed_name)
             .map(|item| item.size)
             .ok_or(ErrorKind::NotFound.into())
     }
@@ -261,7 +261,7 @@ impl Conn {
                           TokioResult<usize> {
         // Resize all seq
         let mut js = JoinSet::new();
-        for seq in self.seq_mapping.lock().await[feed_name].values() {
+        for seq in self.seq_mapping.read().await[feed_name].values() {
             let seq_clone = Arc::clone(seq);
             js.spawn(async move {
                 seq_clone.lock().await.resize(size).await
@@ -270,11 +270,11 @@ impl Conn {
         js.join_all().await;
 
         // Change the size
-        let mut feed_map = self.feed_map.lock().await;
+        let mut feed_map = self.feed_map.write().await;
         let feed_item = feed_map.get_mut(feed_name).unwrap();
         let old_size = feed_item.size;
         feed_item.size = size;
-        self.feed_list.lock().await
+        self.feed_list.write().await
             .modify(&feed_name.to_string(), feed_item).await?;
 
         // Return
@@ -290,11 +290,11 @@ impl Conn {
 
         for col_name in cols.iter() {
             // Get datatype from col item
-            let datatype = self.col_map_mapping.lock().await
+            let datatype = self.col_map_mapping.read().await
                 [feed_name][col_name].datatype.clone();
 
             // Get seq object
-            let seq = &self.seq_mapping.lock().await[feed_name][col_name];
+            let seq = &self.seq_mapping.read().await[feed_name][col_name];
 
             // Clone the seq
             let seq_clone = Arc::clone(seq);
@@ -338,7 +338,7 @@ impl Conn {
         // If the dataset is not empty
         if size > 0 {
             // Get the current feed size into ix
-            let ix = self.feed_map.lock().await[feed_name].size;
+            let ix = self.feed_map.read().await[feed_name].size;
 
             // Update the size of all cols
             self.size_set(feed_name, ix + size).await?;
@@ -355,7 +355,7 @@ impl Conn {
     /// instead.
     pub async fn data_save(&self, feed_name: &str, ix: usize, 
                            ds: &Dataset) -> TokioResult<()> {
-        let cols = self.col_map_mapping.lock().await[feed_name]
+        let cols = self.col_map_mapping.read().await[feed_name]
             .keys().cloned().collect::<Vec<String>>();
         self._data_update(feed_name, ix, ds, &cols).await?;
         Ok(())
@@ -376,7 +376,7 @@ impl Conn {
     pub async fn raw_get(&self, feed_name: &str, col_name: &str, ix: usize, 
                          size: usize) -> TokioResult<Vec<u8>> {
         // Get seq object
-        let seq = &self.seq_mapping.lock().await[feed_name][col_name];
+        let seq = &self.seq_mapping.read().await[feed_name][col_name];
 
         // Get bytes from the seq file into a buffer
         let mut block = vec![0u8; size];
@@ -390,7 +390,7 @@ impl Conn {
     pub async fn raw_set(&self, feed_name: &str, col_name: &str, ix: usize, 
                          block: &[u8]) -> TokioResult<()> {
         // Get seq object
-        let seq = &self.seq_mapping.lock().await[feed_name][col_name];
+        let seq = &self.seq_mapping.read().await[feed_name][col_name];
 
         // Update the seq file with the block
         seq.lock().await.update(ix, block).await?;
@@ -412,7 +412,8 @@ impl Conn {
             // Iterate the colunms
             for col_name in cols.iter() {
                 // Get col item because we need the datatype
-                let col_item = &self.col_map_mapping.lock().await[feed_name][col_name];
+                let col_item = &self.col_map_mapping
+                    .read().await[feed_name][col_name];
 
                 // Convert the series into a byte sequence
                 let block: Vec<u8> = if let Some(series) = ds.get(col_name) {
@@ -424,7 +425,7 @@ impl Conn {
                 };
 
                 // Get seq object
-                let seq = &self.seq_mapping.lock().await[feed_name][col_name];
+                let seq = &self.seq_mapping.read().await[feed_name][col_name];
 
                 // Clone the seq
                 let seq_clone = Arc::clone(seq);
@@ -446,7 +447,7 @@ impl Conn {
                          size: usize, series: Option<&Vec<Dataunit>>) -> 
                          TokioResult<()> {
         // Get col item because we need the datatype
-        let col_item = &self.col_map_mapping.lock().await[feed_name][col_name];
+        let col_item = &self.col_map_mapping.read().await[feed_name][col_name];
 
         // Convert the series into a byte sequence
         let block: Vec<u8> = if let Some(series) = series {
@@ -471,17 +472,17 @@ impl Conn {
         let col_map = col_list.map().await?;
 
         // Open all seq files
-        self.col_map_mapping.lock().await
+        self.col_map_mapping.write().await
             .insert(feed_name.to_string(), HashMap::new());
-        self.seq_mapping.lock().await
+        self.seq_mapping.write().await
             .insert(feed_name.to_string(), HashMap::new());
         for (col_name, col_item) in col_map.into_iter() {
             self._col_open(feed_name, &col_name, col_item).await?;
         }
 
         // Update mappings
-        self.feed_map.lock().await.insert(feed_name.to_string(), feed_item);
-        self.col_list_mapping.lock().await
+        self.feed_map.write().await.insert(feed_name.to_string(), feed_item);
+        self.col_list_mapping.write().await
             .insert(feed_name.to_string(), col_list);
         
         Ok(())
@@ -489,14 +490,14 @@ impl Conn {
 
     async fn _feed_close(&self, feed_name: &str) -> FeedItem {
         // Close all seq files by removing them from seq_mapping
-        self.seq_mapping.lock().await.remove(feed_name);
+        self.seq_mapping.write().await.remove(feed_name);
 
         // Close col list file by removing it from col_list_mapping
-        self.col_list_mapping.lock().await.remove(feed_name);
-        self.col_map_mapping.lock().await.remove(feed_name);
+        self.col_list_mapping.write().await.remove(feed_name);
+        self.col_map_mapping.write().await.remove(feed_name);
 
         // Update feed list
-        self.feed_map.lock().await.remove(feed_name).unwrap()
+        self.feed_map.write().await.remove(feed_name).unwrap()
     }
 
     async fn _col_open(&self, feed_name: &str, col_name: &str, 
@@ -506,9 +507,9 @@ impl Conn {
         let seq = Seq::new(seq_path, col_item.datatype.size()).await?;
 
         // Update the mappings
-        self.col_map_mapping.lock().await.get_mut(feed_name).unwrap()
+        self.col_map_mapping.write().await.get_mut(feed_name).unwrap()
             .insert(col_name.to_string(), col_item);
-        self.seq_mapping.lock().await.get_mut(feed_name).unwrap()
+        self.seq_mapping.write().await.get_mut(feed_name).unwrap()
             .insert(col_name.to_string(), Arc::new(Mutex::new(seq)));
 
         Ok(())
@@ -516,11 +517,11 @@ impl Conn {
 
     async fn _col_close(&self, feed_name: &str, col_name: &str) -> ColItem {
         // Close seq file by removing it from seq_mapping
-        self.seq_mapping.lock().await.get_mut(feed_name).unwrap()
+        self.seq_mapping.write().await.get_mut(feed_name).unwrap()
             .remove(col_name);
 
         // Remove col item from col_map_mapping and return it
-        self.col_map_mapping.lock().await.get_mut(feed_name).unwrap()
+        self.col_map_mapping.write().await.get_mut(feed_name).unwrap()
             .remove(col_name).unwrap()
     }
 
