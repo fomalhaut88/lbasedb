@@ -371,15 +371,19 @@ impl Conn {
         Ok(())
     }
 
-    /// Get raw bytes have the size `size` (in bytes) of the column `col_name`
-    /// in the feed `feed_name` with the offset `ix`.
+    /// Get raw bytes having the size `size` (in data units) of the column 
+    /// `col_name` in the feed `feed_name` with the offset `ix`.
     pub async fn raw_get(&self, feed_name: &str, col_name: &str, ix: usize, 
                          size: usize) -> TokioResult<Vec<u8>> {
         // Get seq object
         let seq = &self.seq_mapping.read().await[feed_name][col_name];
 
+        // Get col item because we need the datatype
+        let col_item = &self.col_map_mapping
+            .read().await[feed_name][col_name];
+
         // Get bytes from the seq file into a buffer
-        let mut block = vec![0u8; size];
+        let mut block = vec![0u8; size * col_item.datatype.size()];
         seq.lock().await.get(ix, &mut block).await?;
 
         Ok(block)
