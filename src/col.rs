@@ -91,17 +91,33 @@ impl<T: Clone> Col<T> {
         }
     }
 
+    /// Get raw bytes of `count` instances starting from `ix`.
+    pub async fn get_raw(&mut self, ix: usize, count: usize) -> 
+            TokioResult<Vec<u8>> {
+        if count > 0 {
+            let mut block = vec![0u8; Self::block_size() * count];
+            self.seq.get(ix, &mut block).await?;
+            Ok(block)
+        } else {
+            Ok(vec![])
+        }
+    }
+
     /// Update the instance located at `ix` with the data `x`.
     pub async fn update(&mut self, ix: usize, x: &T) -> TokioResult<()> {
         let block = to_bytes(x);
-        self.seq.update(ix, &block).await?;
-        Ok(())
+        self.seq.update(ix, &block).await
     }
 
     /// Update the instances located from `ix` with the data in the slice `x`.
     pub async fn update_many(&mut self, ix: usize, x: &[T]) -> TokioResult<()> {
         let block = to_bytes_many(x);
-        self.seq.update(ix, &block).await?;
-        Ok(())
+        self.seq.update(ix, &block).await
+    }
+
+    /// Update instances with raw bytes starting from `ix`.
+    pub async fn update_raw(&mut self, ix: usize, block: &[u8]) -> 
+            TokioResult<()> {
+        self.seq.update(ix, block).await
     }
 }
