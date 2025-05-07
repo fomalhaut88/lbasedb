@@ -1,6 +1,6 @@
 [package]
 name = "lbasedb"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2024"
 authors = ["Alexander Khlebushchev"]
 license = "MIT"
@@ -9,5 +9,6 @@ description = "Low level DBMS in Rust focusing on datasets."
 
 [dependencies]
 base64 = "0.22.1"
+regex = "1.11.1"
 serde = { version = "1.0.218", features = ["derive"] }
 tokio = { version = "1.43.0", features = ["full"] }

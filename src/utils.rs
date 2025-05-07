@@ -1,7 +1,14 @@
 //! Common functions of the library that mainly relate to byte converting.
 
+use regex::Regex;
+use std::io::{Error, ErrorKind};
 use std::mem::size_of;
 use std::slice::from_raw_parts;
+
+
+/// Pattern for allowed names in feeds and columns.
+pub const ALLOWED_NAME_PATTERN: &str = 
+    r"^[a-zA-Z_][a-zA-Z_0-9]*(\.[a-zA-Z_][a-zA-Z_0-9]*)*$";
 
 
 /// Represent `x` as its bytes (without copying).
@@ -62,6 +69,38 @@ pub fn bytes_to_str(bytes: &[u8]) -> &str {
 }
 
 
+/// Validates whether a given name is suitable for use as a feed or column name.
+///
+/// A valid name must consist of one or more non-empty segments separated by 
+/// dots (`.`). Even a single-segment name must follow the rules below.
+///
+/// Each segment:
+/// - May include uppercase and lowercase letters, digits, and underscores (`_`)
+/// - Must **not** start with a digit
+///
+/// # Examples
+///
+/// Valid names:
+/// - `qwe`
+/// - `qwe1.rty2`
+/// - `Qwe_123.Rty_456.Uio_789`
+///
+/// Invalid names:
+/// - `.qwe`
+/// - `rty.`
+/// - `qwe..rty`
+/// - `1qwe`
+/// - `qwe.2rty`
+/// - `qwe-rty`
+pub fn validate_allowed_name(name: &str) -> std::io::Result<()> {
+    if Regex::new(ALLOWED_NAME_PATTERN).unwrap().is_match(name) {
+        Ok(())
+    } else {
+        Err(Error::new(ErrorKind::InvalidInput, name))
+    }
+}
+
+
 /// Concatenate given paths.
 #[macro_export]
 macro_rules! path_concat {
@@ -99,5 +138,18 @@ mod tests {
         assert_eq!(path_concat!("qwe/asd", "zxc/"), "qwe/asd/zxc/".to_string());
         assert_eq!(path_concat!("qwe/asd/", "zxc"), "qwe/asd/zxc".to_string());
         assert_eq!(path_concat!("/qwe/asd", "zxc"), "/qwe/asd/zxc".to_string());
+    }
+
+    #[test]
+    fn test_validate_allowed_name() {
+        assert!(validate_allowed_name("qwe").is_ok());
+        assert!(validate_allowed_name("qwe1.rty2").is_ok());
+        assert!(validate_allowed_name("Qwe_123.Rty_456.Uio_789").is_ok());
+        assert!(validate_allowed_name(".qwe").is_err());
+        assert!(validate_allowed_name("rty.").is_err());
+        assert!(validate_allowed_name("qwe..rty").is_err());
+        assert!(validate_allowed_name("1qwe").is_err());
+        assert!(validate_allowed_name("qwe.2rty").is_err());
+        assert!(validate_allowed_name("qwe-rty").is_err());
     }
 }

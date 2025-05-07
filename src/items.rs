@@ -2,7 +2,7 @@
 //! responsible for the options of feeds (like tables or collections) and
 //! cols (like columns of fields).
 
-use crate::utils::{str_to_bytes, bytes_to_str};
+use crate::utils::{str_to_bytes, bytes_to_str, validate_allowed_name};
 use crate::datatype::Datatype;
 use crate::list::ListKeyTrait;
 
@@ -34,11 +34,12 @@ impl ListKeyTrait<String> for FeedItem {
 
 impl FeedItem {
     /// Create a feed object by name given as string.
-    pub fn new(name: &str) -> Self {
-        Self {
+    pub fn new(name: &str) -> std::io::Result<Self> {
+        validate_allowed_name(name)?;
+        Ok(Self {
             name: str_to_bytes::<MAX_NAME_SIZE>(name),
             size: 0,
-        }
+        })
     }
 
     /// Get name as string.
@@ -47,8 +48,10 @@ impl FeedItem {
     }
 
     /// Rename the feed.
-    pub fn rename(&mut self, name: &str) {
+    pub fn rename(&mut self, name: &str) -> std::io::Result<()> {
+        validate_allowed_name(name)?;
         self.name = str_to_bytes::<MAX_NAME_SIZE>(name);
+        Ok(())
     }
 }
 
@@ -73,11 +76,12 @@ impl ListKeyTrait<String> for ColItem {
 
 impl ColItem {
     /// Create a column object by the name as string and the datatype.
-    pub fn new(name: &str, datatype: &str) -> Self {
-        Self {
+    pub fn new(name: &str, datatype: &str) -> std::io::Result<Self> {
+        validate_allowed_name(name)?;
+        Ok(Self {
             name: str_to_bytes::<MAX_NAME_SIZE>(name),
             datatype: datatype.parse().unwrap(),
-        }
+        })
     }
 
     /// Get name as string.
@@ -91,7 +95,9 @@ impl ColItem {
     }
 
     /// Rename the column.
-    pub fn rename(&mut self, name: &str) {
+    pub fn rename(&mut self, name: &str) -> std::io::Result<()> {
+        validate_allowed_name(name)?;
         self.name = str_to_bytes::<MAX_NAME_SIZE>(name);
+        Ok(())
     }
 }
