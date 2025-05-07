@@ -93,12 +93,14 @@ impl Conn {
         if self.feed_exists(feed_name).await {
             Err(ErrorKind::AlreadyExists.into())
         } else {
+            // Try to create a feed instance
+            let feed_item = FeedItem::new(feed_name)?;
+
             // Create directory for the feed
             let feed_path = path_concat!(self.path.clone(), feed_name);
             create_dir_all(feed_path).await?;
 
             // Insert a new record into the list
-            let feed_item = FeedItem::new(feed_name);
             self.feed_list.write().await.add(&feed_item).await?;
 
             // Open the feed
@@ -139,18 +141,27 @@ impl Conn {
             // Close the feed
             let mut feed_item = self._feed_close(name).await;
 
-            // Update feed list
-            feed_item.rename(name_new);
-            self.feed_list.write().await
-                .modify(&name.to_string(), &feed_item).await?;
+            // Run update
+            let res: TokioResult<()> = {
+                // Update feed list
+                feed_item.rename(name_new)?;
+                self.feed_list.write().await
+                    .modify(&name.to_string(), &feed_item).await?;
 
-            // Rename the directory
-            let feed_path = path_concat!(self.path.clone(), name);
-            let feed_path_new = path_concat!(self.path.clone(), name_new);
-            rename(feed_path, feed_path_new).await?;
+                // Rename the directory
+                let feed_path = path_concat!(self.path.clone(), name);
+                let feed_path_new = path_concat!(self.path.clone(), name_new);
+                rename(feed_path, feed_path_new).await?;
+
+                // Ok
+                Ok(())
+            };
 
             // Open the feed
             self._feed_open(name_new, feed_item).await?;
+
+            // Raise error if happened
+            res?;
 
             Ok(())
         }
@@ -181,19 +192,28 @@ impl Conn {
             // Close the col
             let mut col_item = self._col_close(feed_name, name).await;
 
-            // Update col list
-            col_item.rename(name_new);
-            self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
-                .modify(&name.to_string(), &col_item).await?;
+            // Run update
+            let res: TokioResult<()> = {
+                // Update col list
+                col_item.rename(name_new)?;
+                self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
+                    .modify(&name.to_string(), &col_item).await?;
 
-            // Rename the seq file
-            let seq_path = Self::_get_seq_path(&self.path, feed_name, name);
-            let seq_path_new = Self::_get_seq_path(&self.path, feed_name, 
-                                                   name_new);
-            rename(seq_path, seq_path_new.clone()).await?;
+                // Rename the seq file
+                let seq_path = Self::_get_seq_path(&self.path, feed_name, name);
+                let seq_path_new = Self::_get_seq_path(&self.path, feed_name, 
+                                                       name_new);
+                rename(seq_path, seq_path_new.clone()).await?;
+
+                // Ok
+                Ok(())
+            };
 
             // Open the col
             self._col_open(feed_name, name_new, col_item).await?;
+
+            // Raise error if happened
+            res?;
 
             Ok(())
         }
@@ -208,7 +228,7 @@ impl Conn {
             Err(ErrorKind::AlreadyExists.into())
         } else {
             // Create col item
-            let col_item = ColItem::new(col_name, datatype);
+            let col_item = ColItem::new(col_name, datatype)?;
 
             // Add col item in the list
             self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
