@@ -27,11 +27,11 @@
 //!          .collect::<Vec<String>>()
 //! );
 //! 
-//! if !conn.col_exists("xyz", "x").await {
+//! if !conn.col_exists("xyz", "x").await? {
 //!     conn.col_add("xyz", "x", "Int64").await?;
 //! }
 //! 
-//! if !conn.col_exists("xyz", "y").await {
+//! if !conn.col_exists("xyz", "y").await? {
 //!     conn.col_add("xyz", "y", "Float64").await?;
 //! }
 //! 
@@ -92,11 +92,11 @@ mod tests {
                 .collect::<Vec<String>>()
         );
 
-        if !conn.col_exists("xyz", "x").await {
+        if !conn.col_exists("xyz", "x").await? {
             conn.col_add("xyz", "x", "Int64").await?;
         }
 
-        if !conn.col_exists("xyz", "y").await {
+        if !conn.col_exists("xyz", "y").await? {
             conn.col_add("xyz", "y", "Float64").await?;
         }
 

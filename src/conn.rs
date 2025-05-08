@@ -4,11 +4,12 @@
 use std::sync::Arc;
 use std::collections::HashMap;
 
-use tokio::io::{Result as TokioResult, ErrorKind};
+use tokio::io::{Result as TokioResult};
 use tokio::task::JoinSet;
 use tokio::fs::{create_dir_all, remove_dir_all, rename};
 use tokio::sync::{Mutex, RwLock};
 
+use crate::validate;
 use crate::path_concat;
 use crate::seq::Seq;
 use crate::list::List;
@@ -90,195 +91,211 @@ impl Conn {
     /// Add a new feed by its name.
     pub async fn feed_add(&self, feed_name: &str) -> TokioResult<()> {
         // Check whether it exists
-        if self.feed_exists(feed_name).await {
-            Err(ErrorKind::AlreadyExists.into())
-        } else {
-            // Try to create a feed instance
-            let feed_item = FeedItem::new(feed_name)?;
+        validate!(!self.feed_exists(feed_name).await, 
+                  AlreadyExists, feed_name)?;
 
-            // Create directory for the feed
-            let feed_path = path_concat!(self.path.clone(), feed_name);
-            create_dir_all(feed_path).await?;
+        // Try to create a feed instance
+        let feed_item = FeedItem::new(feed_name)?;
 
-            // Insert a new record into the list
-            self.feed_list.write().await.add(&feed_item).await?;
+        // Create directory for the feed
+        let feed_path = path_concat!(self.path.clone(), feed_name);
+        create_dir_all(feed_path).await?;
 
-            // Open the feed
-            self._feed_open(feed_name, feed_item).await?;
+        // Insert a new record into the list
+        self.feed_list.write().await.add(&feed_item).await?;
 
-            Ok(())
-        }
+        // Open the feed
+        self._feed_open(feed_name, feed_item).await?;
+
+        // Ok
+        Ok(())
     }
 
     /// Remove the feed by its name.
     pub async fn feed_remove(&self, feed_name: &str) -> TokioResult<()> {
         // Check whether it exists
-        if !self.feed_exists(feed_name).await {
-            Err(ErrorKind::NotFound.into())
-        } else {
-            // Close the feed
-            self._feed_close(feed_name).await;
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
 
-            // Remove from the list
-            self.feed_list.write().await.remove(&feed_name.to_string()).await?;
+        // Close the feed
+        self._feed_close(feed_name).await;
 
-            // Remove the directory
-            let feed_path = path_concat!(self.path.clone(), feed_name);
-            remove_dir_all(feed_path).await?;
+        // Remove from the list
+        self.feed_list.write().await.remove(&feed_name.to_string()).await?;
 
-            Ok(())
-        }
+        // Remove the directory
+        let feed_path = path_concat!(self.path.clone(), feed_name);
+        remove_dir_all(feed_path).await?;
+
+        // Ok
+        Ok(())
     }
 
     /// Rename the feed.
     pub async fn feed_rename(&self, name: &str, name_new: &str) -> 
                              TokioResult<()> {
-        if !self.feed_exists(name).await {
-            Err(ErrorKind::NotFound.into())
-        } else if self.feed_exists(name_new).await {
-            Err(ErrorKind::AlreadyExists.into())
-        } else {
-            // Close the feed
-            let mut feed_item = self._feed_close(name).await;
+        // Check whether they exist
+        validate!(self.feed_exists(name).await, NotFound, name)?;
+        validate!(!self.feed_exists(name_new).await, AlreadyExists, name_new)?;
 
-            // Run update
-            let res: TokioResult<()> = {
-                // Update feed list
-                feed_item.rename(name_new)?;
-                self.feed_list.write().await
-                    .modify(&name.to_string(), &feed_item).await?;
+        // Close the feed
+        let mut feed_item = self._feed_close(name).await;
 
-                // Rename the directory
-                let feed_path = path_concat!(self.path.clone(), name);
-                let feed_path_new = path_concat!(self.path.clone(), name_new);
-                rename(feed_path, feed_path_new).await?;
+        // Run update
+        let res: TokioResult<()> = {
+            // Update feed list
+            feed_item.rename(name_new)?;
+            self.feed_list.write().await
+                .modify(&name.to_string(), &feed_item).await?;
 
-                // Ok
-                Ok(())
-            };
+            // Rename the directory
+            let feed_path = path_concat!(self.path.clone(), name);
+            let feed_path_new = path_concat!(self.path.clone(), name_new);
+            rename(feed_path, feed_path_new).await?;
 
-            // Open the feed
-            self._feed_open(name_new, feed_item).await?;
-
-            // Raise error if happened
-            res?;
-
+            // Ok
             Ok(())
-        }
+        };
+
+        // Open the feed
+        self._feed_open(name_new, feed_item).await?;
+
+        // Raise error if happened
+        res?;
+
+        // Ok
+        Ok(())
     }
 
     /// List columns of the feed.
     pub async fn col_list(&self, feed_name: &str) -> TokioResult<Vec<ColItem>> {
-        self.col_map_mapping.read().await.get(feed_name)
-            .map(|item| item.values().cloned().collect())
-            .ok_or(ErrorKind::NotFound.into())
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
+        // Collect columns to return
+        Ok(self.col_map_mapping.read().await[feed_name]
+            .values().cloned().collect())
     }
 
     /// Check if the column exists in the feed.
-    pub async fn col_exists(&self, feed_name: &str, col_name: &str) -> bool {
-        self.col_map_mapping.read().await[feed_name].contains_key(col_name)
+    pub async fn col_exists(&self, feed_name: &str, 
+                            col_name: &str) -> TokioResult<bool> {
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
+        // Check whether the column exists
+        Ok(self.col_map_mapping.read().await[feed_name].contains_key(col_name))
     }
 
     /// Rename the column
     pub async fn col_rename(&self, feed_name: &str, name: &str, 
                             name_new: &str) -> TokioResult<()> {
-        if !self.feed_exists(feed_name).await {
-            Err(ErrorKind::NotFound.into())
-        } else if !self.col_exists(feed_name, name).await {
-            Err(ErrorKind::NotFound.into())
-        } else if self.col_exists(feed_name, name_new).await {
-            Err(ErrorKind::AlreadyExists.into())
-        } else {
-            // Close the col
-            let mut col_item = self._col_close(feed_name, name).await;
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
 
-            // Run update
-            let res: TokioResult<()> = {
-                // Update col list
-                col_item.rename(name_new)?;
-                self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
-                    .modify(&name.to_string(), &col_item).await?;
+        // Check whether the column exists
+        validate!(self.col_exists(feed_name, name).await?, NotFound, name)?;
+        validate!(!self.col_exists(feed_name, name_new).await?, 
+                  AlreadyExists, name_new)?;
 
-                // Rename the seq file
-                let seq_path = Self::_get_seq_path(&self.path, feed_name, name);
-                let seq_path_new = Self::_get_seq_path(&self.path, feed_name, 
-                                                       name_new);
-                rename(seq_path, seq_path_new.clone()).await?;
+        // Close the col
+        let mut col_item = self._col_close(feed_name, name).await;
 
-                // Ok
-                Ok(())
-            };
+        // Run update
+        let res: TokioResult<()> = {
+            // Update col list
+            col_item.rename(name_new)?;
+            self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
+                .modify(&name.to_string(), &col_item).await?;
 
-            // Open the col
-            self._col_open(feed_name, name_new, col_item).await?;
+            // Rename the seq file
+            let seq_path = Self::_get_seq_path(&self.path, feed_name, name);
+            let seq_path_new = Self::_get_seq_path(&self.path, feed_name, 
+                                                   name_new);
+            rename(seq_path, seq_path_new.clone()).await?;
 
-            // Raise error if happened
-            res?;
-
+            // Ok
             Ok(())
-        }
+        };
+
+        // Open the col
+        self._col_open(feed_name, name_new, col_item).await?;
+
+        // Raise error if happened
+        res?;
+
+        // Ok
+        Ok(())
     }
 
     /// Add a new column by its name and datatype.
     pub async fn col_add(&self, feed_name: &str, col_name: &str, 
                          datatype: &str) -> TokioResult<()> {
-        if !self.feed_exists(feed_name).await {
-            Err(ErrorKind::NotFound.into())
-        } else if self.col_exists(feed_name, col_name).await {
-            Err(ErrorKind::AlreadyExists.into())
-        } else {
-            // Create col item
-            let col_item = ColItem::new(col_name, datatype)?;
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
 
-            // Add col item in the list
-            self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
-                .add(&col_item).await?;
+        // Check whether the column exists
+        validate!(!self.col_exists(feed_name, col_name).await?, 
+                  AlreadyExists, col_name)?;
 
-            // Open the col
-            self._col_open(feed_name, col_name, col_item).await?;
+        // Create col item
+        let col_item = ColItem::new(col_name, datatype)?;
 
-            // Resize the seq
-            let size = self.feed_map.read().await[feed_name].size;
-            let seq = &self.seq_mapping.read().await[feed_name][col_name];
-            seq.lock().await.resize(size).await?;
+        // Add col item in the list
+        self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
+            .add(&col_item).await?;
 
-            Ok(())
-        }
+        // Open the col
+        self._col_open(feed_name, col_name, col_item).await?;
+
+        // Resize the seq
+        let size = self.feed_map.read().await[feed_name].size;
+        let seq = &self.seq_mapping.read().await[feed_name][col_name];
+        seq.lock().await.resize(size).await?;
+
+        // Ok
+        Ok(())
     }
 
     /// Remove the column.
     pub async fn col_remove(&self, feed_name: &str, col_name: &str) -> 
                             TokioResult<()> {
-        if !self.feed_exists(feed_name).await {
-            Err(ErrorKind::NotFound.into())
-        } else if !self.col_exists(feed_name, col_name).await {
-            Err(ErrorKind::NotFound.into())
-        } else {
-            // Close the col
-            self._col_close(feed_name, col_name).await;
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
 
-            // Remove col item from the list
-            self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
-                .remove(&col_name.to_string()).await?;
+        // Check whether the column exists
+        validate!(self.col_exists(feed_name, col_name).await?, 
+                  NotFound, col_name)?;
 
-            // Remove seq file
-            let seq_path = Self::_get_seq_path(&self.path, feed_name, col_name);
-            tokio::fs::remove_file(seq_path).await?;
+        // Close the col
+        self._col_close(feed_name, col_name).await;
 
-            Ok(())
-        }
+        // Remove col item from the list
+        self.col_list_mapping.write().await.get_mut(feed_name).unwrap()
+            .remove(&col_name.to_string()).await?;
+
+        // Remove seq file
+        let seq_path = Self::_get_seq_path(&self.path, feed_name, col_name);
+        tokio::fs::remove_file(seq_path).await?;
+
+        // Ok
+        Ok(())
     }
 
     /// Get the size of the feed.
     pub async fn size_get(&self, feed_name: &str) -> TokioResult<usize> {
-        self.feed_map.read().await.get(feed_name)
-            .map(|item| item.size)
-            .ok_or(ErrorKind::NotFound.into())
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
+        // Get size
+        Ok(self.feed_map.read().await[feed_name].size)
     }
 
     /// Change the size of the feed including the sizes of all column files.
     pub async fn size_set(&self, feed_name: &str, size: usize) -> 
                           TokioResult<usize> {
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
         // Resize all seq
         let mut js = JoinSet::new();
         for seq in self.seq_mapping.read().await[feed_name].values() {
@@ -305,10 +322,21 @@ impl Conn {
     /// and the columns `cols` with the offset `ix`.
     pub async fn data_get(&self, feed_name: &str, ix: usize, size: usize, 
                           cols: &[String]) -> TokioResult<Dataset> {
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
+        // Validate range
+        validate!(ix + size <= self.feed_map.read().await[feed_name].size, 
+                  UnexpectedEof, (ix + size).to_string())?;
+
         // Create a JoinSet object
         let mut js = JoinSet::new();
 
         for col_name in cols.iter() {
+            // Check whether the column exists
+            validate!(self.col_exists(feed_name, col_name).await?, 
+                      NotFound, &**col_name)?;
+
             // Get datatype from col item
             let datatype = self.col_map_mapping.read().await
                 [feed_name][col_name].datatype.clone();
@@ -352,6 +380,9 @@ impl Conn {
     /// Push the dataset to the feed. The missed columns will be zeros.
     pub async fn data_push(&self, feed_name: &str, ds: &Dataset) -> 
                            TokioResult<()> {
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
         // Get the dataset size
         let size = get_dataset_size(ds)?;
 
@@ -375,9 +406,17 @@ impl Conn {
     /// instead.
     pub async fn data_save(&self, feed_name: &str, ix: usize, 
                            ds: &Dataset) -> TokioResult<()> {
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
+        // Get all columns
         let cols = self.col_map_mapping.read().await[feed_name]
             .keys().cloned().collect::<Vec<String>>();
+
+        // Update the columns with the dataset
         self._data_update(feed_name, ix, ds, &cols).await?;
+
+        // Ok
         Ok(())
     }
 
@@ -386,8 +425,16 @@ impl Conn {
     /// instead.
     pub async fn data_patch(&self, feed_name: &str, ix: usize, 
                             ds: &Dataset) -> TokioResult<()> {
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
+        // Get dataset columns
         let cols = ds.keys().cloned().collect::<Vec<String>>();
+
+        // Update the columns with the dataset
         self._data_update(feed_name, ix, ds, &cols).await?;
+
+        // Ok
         Ok(())
     }
 
@@ -395,6 +442,17 @@ impl Conn {
     /// `col_name` in the feed `feed_name` with the offset `ix`.
     pub async fn raw_get(&self, feed_name: &str, col_name: &str, ix: usize, 
                          size: usize) -> TokioResult<Vec<u8>> {
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
+        // Check whether the column exists
+        validate!(self.col_exists(feed_name, col_name).await?, 
+                  NotFound, col_name)?;
+
+        // Validate range
+        validate!(ix + size <= self.feed_map.read().await[feed_name].size, 
+                  UnexpectedEof, (ix + size).to_string())?;
+
         // Get seq object
         let seq = &self.seq_mapping.read().await[feed_name][col_name];
 
@@ -413,12 +471,26 @@ impl Conn {
     /// of the feed `feed_name` with the offset `ix`.
     pub async fn raw_set(&self, feed_name: &str, col_name: &str, ix: usize, 
                          block: &[u8]) -> TokioResult<()> {
+        // Check whether the feed exists
+        validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
+
+        // Check whether the column exists
+        validate!(self.col_exists(feed_name, col_name).await?, 
+                  NotFound, col_name)?;
+
         // Get seq object
-        let seq = &self.seq_mapping.read().await[feed_name][col_name];
+        let seq_arc = &self.seq_mapping.read().await[feed_name][col_name];
+        let mut seq = seq_arc.lock().await;
+
+        // Validate range
+        let end = ix + block.len() / seq.block_size();
+        validate!(end <= self.feed_map.read().await[feed_name].size, 
+                  UnexpectedEof, end.to_string())?;
 
         // Update the seq file with the block
-        seq.lock().await.update(ix, block).await?;
+        seq.update(ix, block).await?;
 
+        // Ok
         Ok(())
     }
 
@@ -428,6 +500,10 @@ impl Conn {
         // all series have the same size
         let size = get_dataset_size(ds)?;
 
+        // Validate range
+        validate!(ix + size <= self.feed_map.read().await[feed_name].size, 
+                  UnexpectedEof, (ix + size).to_string())?;
+
         // If the dataset is not empty
         if size > 0 {
             // Create a join set
@@ -436,55 +512,36 @@ impl Conn {
             // Iterate the colunms
             for col_name in cols.iter() {
                 // Get col item because we need the datatype
-                let col_item = &self.col_map_mapping
-                    .read().await[feed_name][col_name];
+                if let Some(col_item) = &self.col_map_mapping.read()
+                                             .await[feed_name].get(col_name) {
+                    // Convert the series into a byte sequence
+                    let block = if let Some(series) = ds.get(col_name) {
+                        series.iter().map(
+                            |unit| col_item.datatype.to_bytes(unit).unwrap()
+                        ).collect::<Vec<Vec<u8>>>().concat()
+                    } else {
+                        vec![0u8; size * col_item.datatype.size()]
+                    };
 
-                // Convert the series into a byte sequence
-                let block: Vec<u8> = if let Some(series) = ds.get(col_name) {
-                    series.iter()
-                        .map(|unit| col_item.datatype.to_bytes(unit).unwrap())
-                        .collect::<Vec<Vec<u8>>>().concat()
-                } else {
-                    vec![0u8; size * col_item.datatype.size()]
-                };
+                    // Get seq object
+                    let seq = &self.seq_mapping.read()
+                                   .await[feed_name][col_name];
 
-                // Get seq object
-                let seq = &self.seq_mapping.read().await[feed_name][col_name];
+                    // Clone the seq
+                    let seq_clone = Arc::clone(seq);
 
-                // Clone the seq
-                let seq_clone = Arc::clone(seq);
-
-                // Update the seq file with the block in parralel
-                js.spawn(async move {
-                    seq_clone.lock().await.update(ix, &block).await
-                });
+                    // Update the seq file with the block in parralel
+                    js.spawn(async move {
+                        seq_clone.lock().await.update(ix, &block).await
+                    });
+                }
             }
 
             // Execute in parralel
             js.join_all().await;
         }
 
-        Ok(())
-    }
-
-    async fn _seq_update(&self, feed_name: &str, col_name: &str, ix: usize, 
-                         size: usize, series: Option<&Vec<Dataunit>>) -> 
-                         TokioResult<()> {
-        // Get col item because we need the datatype
-        let col_item = &self.col_map_mapping.read().await[feed_name][col_name];
-
-        // Convert the series into a byte sequence
-        let block: Vec<u8> = if let Some(series) = series {
-            series.iter()
-                .map(|unit| col_item.datatype.to_bytes(unit).unwrap())
-                .collect::<Vec<Vec<u8>>>().concat()
-        } else {
-            vec![0u8; size * col_item.datatype.size()]
-        };
-
-        // Update the seq file
-        self.raw_set(feed_name, col_name, ix, &block).await?;
-
+        // Ok
         Ok(())
     }
 
@@ -509,6 +566,7 @@ impl Conn {
         self.col_list_mapping.write().await
             .insert(feed_name.to_string(), col_list);
         
+        // Ok
         Ok(())
     }
 
@@ -536,6 +594,7 @@ impl Conn {
         self.seq_mapping.write().await.get_mut(feed_name).unwrap()
             .insert(col_name.to_string(), Arc::new(Mutex::new(seq)));
 
+        // Ok
         Ok(())
     }
 

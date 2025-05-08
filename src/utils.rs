@@ -114,6 +114,20 @@ macro_rules! path_concat {
 }
 
 
+/// Validate the condition and return an error with a message in case of 
+/// failure.
+#[macro_export]
+macro_rules! validate {
+    ($cond:expr, $kind:ident, $msg:expr) => {
+        if $cond {
+            Ok(())
+        } else {
+            Err(std::io::Error::new(std::io::ErrorKind::$kind, $msg))
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
