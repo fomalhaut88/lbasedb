@@ -64,6 +64,7 @@ pub mod utils;
 pub mod seq;
 pub mod col;
 pub mod list;
+pub mod heap;
 pub mod items;
 pub mod datatype;
 pub mod dataset;

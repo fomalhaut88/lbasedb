@@ -47,6 +47,15 @@ pub enum Datatype {
 
     /// Bytes with the fized size.
     Bytes(usize),
+
+    /// ASCII string with the size limit.
+    String(usize),
+
+    /// Arbitrary size bytes.
+    Blob,
+
+    /// Arbitrary size string.
+    Text,
 }
 
 
@@ -91,6 +100,31 @@ impl Datatype {
                     None
                 }
             },
+            Self::String(len) => {
+                if let Dataunit::S(x) = x {
+                    let mut block = x.as_bytes().to_vec();
+                    block.resize(*len, 0);
+                    Some(block)
+                } else {
+                    None
+                }
+            },
+            Self::Blob => {
+                if let Dataunit::S(x) = x {
+                    let block = BASE64_STANDARD.decode(x).unwrap();
+                    Some(block)
+                } else {
+                    None
+                }
+            },
+            Self::Text => {
+                if let Dataunit::S(x) = x {
+                    let block = x.as_bytes().to_vec();
+                    Some(block)
+                } else {
+                    None
+                }
+            },
         }
     }
 
@@ -113,6 +147,20 @@ impl Datatype {
                 let string = BASE64_STANDARD.encode(&block[..*len]);
                 Dataunit::S(string)
             },
+            Self::String(len) => {
+                let string = String::from_utf8_lossy(&block[..*len])
+                    .trim_end_matches('\0').to_string();
+                Dataunit::S(string)
+            },
+            Self::Blob => {
+                let string = BASE64_STANDARD.encode(block);
+                Dataunit::S(string)
+            },
+            Self::Text => {
+                let string = String::from_utf8_lossy(block)
+                    .trim_end_matches('\0').to_string();
+                Dataunit::S(string)
+            },
         }
     }
 
@@ -124,6 +172,9 @@ impl Datatype {
             Self::Int32 => size_of::<i32>(),
             Self::Float32 => size_of::<f32>(),
             Self::Bytes(len) => *len,
+            Self::String(len) => *len,
+            Self::Blob => 0,
+            Self::Text => 0,
         }
     }
 }
@@ -137,8 +188,18 @@ impl ToString for Datatype {
             Self::Int32 => "Int32".to_string(),
             Self::Float32 => "Float32".to_string(),
             Self::Bytes(len) => format!("Bytes[{}]", len),
+            Self::String(len) => format!("String[{}]", len),
+            Self::Blob => "Blob".to_string(),
+            Self::Text => "Text".to_string(),
         }
     }
+}
+
+
+fn unpack_from_pattern(text: &str, pref: &str, suff: &str) -> Option<String> {
+    text.strip_prefix(&pref)
+        .and_then(|s| s.strip_suffix(&suff))
+        .and_then(|s| Some(s.to_string()))
 }
 
 
@@ -151,16 +212,21 @@ impl FromStr for Datatype {
             "Float64" => Ok(Self::Float64),
             "Int32" => Ok(Self::Int32),
             "Float32" => Ok(Self::Float32),
+            "Blob" => Ok(Self::Blob),
+            "Text" => Ok(Self::Text),
             _ => {
-                let len_str = s
-                    .strip_prefix("Bytes[")
-                    .and_then(|s| s.strip_suffix(']'))
-                    .ok_or("Unknown datatype".to_string())?;
-
-                let len = len_str.parse::<usize>()
-                    .map_err(|_| "Unknown datatype".to_string())?;
-
-                Ok(Self::Bytes(len))
+                if let Some(len_str) = unpack_from_pattern(s, "Bytes[", "]") {
+                    let len = len_str.parse::<usize>()
+                        .map_err(|_| "Unknown datatype".to_string())?;
+                    Ok(Self::Bytes(len))
+                } else if let Some(len_str) = unpack_from_pattern(s, "String[", 
+                                                                  "]") {
+                    let len = len_str.parse::<usize>()
+                        .map_err(|_| "Unknown datatype".to_string())?;
+                    Ok(Self::String(len))
+                } else {
+                    Err("Unknown datatype".to_string())
+                }
             },
         }
     }
@@ -178,21 +244,30 @@ mod tests {
         assert_eq!(Datatype::Float64.size(), 8);
         assert_eq!(Datatype::Float32.size(), 4);
         assert_eq!(Datatype::Bytes(5).size(), 5);
+        assert_eq!(Datatype::String(6).size(), 6);
+        assert_eq!(Datatype::Blob.size(), 0);
+        assert_eq!(Datatype::Text.size(), 0);
     }
 
     #[test]
     fn test_convert_string() {
         assert_eq!(Datatype::Int32.to_string(), "Int32");
         assert_eq!(Datatype::Bytes(25).to_string(), "Bytes[25]");
+        assert_eq!(Datatype::String(26).to_string(), "String[26]");
 
         assert_eq!("Int32".parse::<Datatype>(), Ok(Datatype::Int32));
         assert_eq!("Bytes[25]".parse::<Datatype>(), Ok(Datatype::Bytes(25)));
+        assert_eq!("String[26]".parse::<Datatype>(), Ok(Datatype::String(26)));
 
         assert_eq!("Boolean".parse::<Datatype>(), 
                    Err("Unknown datatype".to_string()));
         assert_eq!("Bytes[xxx]".parse::<Datatype>(), 
                    Err("Unknown datatype".to_string()));
         assert_eq!("Bytes[-12]".parse::<Datatype>(), 
+                   Err("Unknown datatype".to_string()));
+        assert_eq!("String[xxx]".parse::<Datatype>(), 
+                   Err("Unknown datatype".to_string()));
+        assert_eq!("String[-12]".parse::<Datatype>(), 
                    Err("Unknown datatype".to_string()));
     }
 
@@ -220,6 +295,24 @@ mod tests {
             ).unwrap(), 
             vec![250, 236, 32, 85, 0]
         );
+        assert_eq!(
+            Datatype::String(6).to_bytes(
+                &Dataunit::S("Qwe".to_string())
+            ).unwrap(), 
+            vec![81, 119, 101, 0, 0, 0]
+        );
+        assert_eq!(
+            Datatype::Blob.to_bytes(
+                &Dataunit::S("+uwgVQA=".to_string())
+            ).unwrap(), 
+            vec![250, 236, 32, 85, 0]
+        );
+        assert_eq!(
+            Datatype::Text.to_bytes(
+                &Dataunit::S("Qwe".to_string())
+            ).unwrap(), 
+            vec![81, 119, 101]
+        );
 
         assert_eq!(
             Datatype::Int64.from_bytes(&[25, 0, 0, 0, 0, 0, 0, 0]), 
@@ -240,6 +333,18 @@ mod tests {
         assert_eq!(
             Datatype::Bytes(5).from_bytes(&[250, 236, 32, 85, 0]), 
             Dataunit::S("+uwgVQA=".to_string())
+        );
+        assert_eq!(
+            Datatype::String(5).from_bytes(&[81, 119, 101, 0, 0, 0]), 
+            Dataunit::S("Qwe".to_string())
+        );
+        assert_eq!(
+            Datatype::Blob.from_bytes(&[250, 236, 32, 85, 0]), 
+            Dataunit::S("+uwgVQA=".to_string())
+        );
+        assert_eq!(
+            Datatype::Text.from_bytes(&[81, 119, 101, 0]), 
+            Dataunit::S("Qwe".to_string())
         );
     }
 }
