@@ -13,6 +13,42 @@
 //! - Asynchronous allocation and resizing
 //! - File-backed storage with offset tracking
 //! - Simple block management without free-space reuse
+//!
+//! ```ignore
+//! let mut text_col = Col::<HeapItem>::new("./tmp/text.col").await?;
+//! let mut text_heap = Heap::new("./tmp/text.heap").await?;
+//!
+//! let phrase = "This is Lbasedb library.";
+//!
+//! // Save text
+//! let block: &[u8] = phrase.as_bytes();
+//! let mut item = text_heap.alloc(block.len() as u64).await?;
+//! text_heap.update(&item, block).await?;
+//! let ix = text_col.push(&item).await?;
+//!
+//! assert_eq!(text_col.size().await?, 1);
+//! assert_eq!(text_heap.size().await?, 32);
+//!
+//! // Update text
+//! let phrase = "This is Lbasedb library. Updated text.";
+//! let block: &[u8] = phrase.as_bytes();
+//! text_heap.realloc(&mut item, phrase.len() as u64).await?;
+//! text_heap.update(&item, block).await?;
+//! text_col.update(ix, &item).await?;
+//!
+//! assert_eq!(text_col.size().await?, 1);
+//! assert_eq!(text_heap.size().await?, 96);
+//!
+//! // Get text
+//! let item = text_col.get(0).await?;
+//! let mut block = vec![0u8; item.size as usize];
+//! text_heap.get(&item, &mut block).await?;
+//! let phrase: &str = str::from_utf8(&block).unwrap();
+//!
+//! assert_eq!(item.offset, 32);
+//! assert_eq!(item.maxsize, 64);
+//! assert_eq!(phrase, "This is Lbasedb library. Updated text.");
+//! ```
 
 use std::path::Path;
 
@@ -67,15 +103,17 @@ impl Heap {
     }
 
     /// Resizes the memory block. Reallocates if the new size exceeds the 
-    /// block's capacity.
+    /// block's capacity. It returns `true` if reallocation happened else
+    /// `false`.
     pub async fn realloc(&self, item: &mut HeapItem, 
-                         size: u64) -> TokioResult<()> {
+                         size: u64) -> TokioResult<bool> {
         if size > item.maxsize {
             *item = self.alloc(size).await?;
+            Ok(true)
         } else {
             item.size = size;
+            Ok(false)
         }
-        Ok(())
     }
 
     /// Writes data to the specified memory block.
@@ -98,6 +136,60 @@ impl Heap {
         let pos = SeekFrom::Start(item.offset);
         self.file.seek(pos).await?;
         self.file.read_exact(&mut block[.. item.size as usize]).await?;
+        Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::col::Col;
+
+    #[tokio::test]
+    async fn test() -> tokio::io::Result<()> {
+        if tokio::fs::try_exists("./tmp/text.col").await? {
+            tokio::fs::remove_file("./tmp/text.col").await?;
+        }
+
+        if tokio::fs::try_exists("./tmp/text.heap").await? {
+            tokio::fs::remove_file("./tmp/text.heap").await?;
+        }
+
+        let mut text_col = Col::<HeapItem>::new("./tmp/text.col").await?;
+        let mut text_heap = Heap::new("./tmp/text.heap").await?;
+
+        let phrase = "This is Lbasedb library.";
+
+        // Save text
+        let block: &[u8] = phrase.as_bytes();
+        let mut item = text_heap.alloc(block.len() as u64).await?;
+        text_heap.update(&item, block).await?;
+        let ix = text_col.push(&item).await?;
+
+        assert_eq!(text_col.size().await?, 1);
+        assert_eq!(text_heap.size().await?, 32);
+
+        // Update text
+        let phrase = "This is Lbasedb library. Updated text.";
+        let block: &[u8] = phrase.as_bytes();
+        text_heap.realloc(&mut item, phrase.len() as u64).await?;
+        text_heap.update(&item, block).await?;
+        text_col.update(ix, &item).await?;
+
+        assert_eq!(text_col.size().await?, 1);
+        assert_eq!(text_heap.size().await?, 96);
+
+        // Get text
+        let item = text_col.get(0).await?;
+        let mut block = vec![0u8; item.size as usize];
+        text_heap.get(&item, &mut block).await?;
+        let phrase: &str = str::from_utf8(&block).unwrap();
+
+        assert_eq!(item.offset, 32);
+        assert_eq!(item.maxsize, 64);
+        assert_eq!(phrase, "This is Lbasedb library. Updated text.");
+
         Ok(())
     }
 }
