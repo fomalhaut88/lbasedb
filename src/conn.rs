@@ -3,8 +3,9 @@
 
 use std::sync::Arc;
 use std::collections::HashMap;
+use futures::{try_join, future::try_join_all};
 
-use tokio::io::{Result as TokioResult};
+use tokio::io::{Result as TokioResult, Error, ErrorKind};
 use tokio::task::JoinSet;
 use tokio::fs::{create_dir_all, remove_dir_all, rename};
 use tokio::sync::{Mutex, RwLock};
@@ -438,19 +439,19 @@ impl Conn {
         Ok(())
     }
 
-    /// Get raw bytes having the size `size` (in data units) of the column 
+    /// Get raw bytes having the size `size` (in data units) of the column
     /// `col_name` in the feed `feed_name` with the offset `ix`.
-    pub async fn raw_get(&self, feed_name: &str, col_name: &str, ix: usize, 
+    pub async fn raw_get(&self, feed_name: &str, col_name: &str, ix: usize,
                          size: usize) -> TokioResult<Vec<u8>> {
         // Check whether the feed exists
         validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
 
         // Check whether the column exists
-        validate!(self.col_exists(feed_name, col_name).await?, 
+        validate!(self.col_exists(feed_name, col_name).await?,
                   NotFound, col_name)?;
 
         // Validate range
-        validate!(ix + size <= self.feed_map.read().await[feed_name].size, 
+        validate!(ix + size <= self.feed_map.read().await[feed_name].size,
                   UnexpectedEof, (ix + size).to_string())?;
 
         // Get seq object
@@ -467,15 +468,15 @@ impl Conn {
         Ok(block)
     }
 
-    /// Update raw bytes from the `block` in the column `col_name` 
+    /// Update raw bytes from the `block` in the column `col_name`
     /// of the feed `feed_name` with the offset `ix`.
-    pub async fn raw_set(&self, feed_name: &str, col_name: &str, ix: usize, 
+    pub async fn raw_set(&self, feed_name: &str, col_name: &str, ix: usize,
                          block: &[u8]) -> TokioResult<()> {
         // Check whether the feed exists
         validate!(self.feed_exists(feed_name).await, NotFound, feed_name)?;
 
         // Check whether the column exists
-        validate!(self.col_exists(feed_name, col_name).await?, 
+        validate!(self.col_exists(feed_name, col_name).await?,
                   NotFound, col_name)?;
 
         // Get seq object
@@ -484,7 +485,7 @@ impl Conn {
 
         // Validate range
         let end = ix + block.len() / seq.block_size();
-        validate!(end <= self.feed_map.read().await[feed_name].size, 
+        validate!(end <= self.feed_map.read().await[feed_name].size,
                   UnexpectedEof, end.to_string())?;
 
         // Update the seq file with the block
@@ -492,6 +493,118 @@ impl Conn {
 
         // Ok
         Ok(())
+    }
+
+    /// Get bytes for passed columns from `ix` for `size` records.
+    pub async fn bytes_get(&self, feed_name: &str, cols: &[String], ix: usize,
+                           size: usize) -> TokioResult<Vec<u8>> {
+        // Get row size
+        let rowsize = self.rowsize(feed_name, cols).await?;
+
+        // Validate range
+        validate!(ix + size <= self.feed_map.read().await[feed_name].size,
+                  UnexpectedEof, (ix + size).to_string())?;
+
+        // Buffer to return
+        let mut buffer = vec![0u8; size * rowsize];
+
+        // First collect all metadata we need, without borrowing `buffer`
+        let col_map_mapping = self.col_map_mapping.read().await;
+        let seq_mapping = self.seq_mapping.read().await;
+
+        let mut jobs = Vec::with_capacity(cols.len());
+
+        for col_name in cols.iter() {
+            let col_item = &col_map_mapping[feed_name][col_name];
+            let seq = seq_mapping[feed_name][col_name].clone();
+            let chunk_size = col_item.datatype.size() * size;
+            jobs.push((seq, chunk_size));
+        }
+
+        // Split `buffer` into non-overlapping mutable chunks and run all
+        // reads concurrently
+        let mut tail: &mut [u8] = buffer.as_mut_slice();
+        let mut futs = Vec::with_capacity(jobs.len());
+
+        for (seq, chunk_size) in jobs {
+            let (chunk, rest) = tail.split_at_mut(chunk_size);
+            tail = rest;
+
+            futs.push(async move {
+                seq.lock().await.get(ix, chunk).await
+            });
+        }
+
+        try_join_all(futs).await?;
+
+        Ok(buffer)
+    }
+
+    /// Push bytes dataset to the end for passed columns.
+    pub async fn bytes_push(&self, feed_name: &str, cols: &[String],
+                            buffer: &[u8]) -> TokioResult<()> {
+        let rowsize = self.rowsize(feed_name, cols).await?;
+        let size = buffer.len() / rowsize;
+        let ix = self.feed_map.read().await[feed_name].size;
+
+        self.size_set(feed_name, ix + size).await?;
+        self.bytes_patch(feed_name, cols, ix, buffer).await?;
+
+        Ok(())
+    }
+
+    /// Update bytes for passed columns with given byte buffer from `ix`,
+    /// the rest columns will be zeroed (to prevent it use `bytes_patch`
+    /// instead).
+    pub async fn bytes_save(&self, feed_name: &str, cols: &[String],
+                            ix: usize, buffer: &[u8]) -> TokioResult<()> {
+        let rowsize = self.rowsize(feed_name, cols).await?;
+        let size = buffer.len() / rowsize;
+
+        let cols_ext = self.col_map_mapping.read().await[feed_name].keys()
+            .filter(|col| !cols.contains(col))
+            .cloned().collect::<Vec<String>>();
+
+        try_join!(
+            self.bytes_patch(feed_name, cols, ix, buffer),
+            self.bytes_reset(feed_name, &cols_ext, ix, size),
+        )?;
+
+        Ok(())
+    }
+
+    /// Update bytes for passed columns with given byte buffer from `ix`.
+    pub async fn bytes_patch(&self, feed_name: &str, cols: &[String],
+                             ix: usize, buffer: &[u8]) -> TokioResult<()> {
+        let rowsize = self.rowsize(feed_name, cols).await?;
+        let size = buffer.len() / rowsize;
+        self._bytes_update(feed_name, cols, ix, size, buffer).await?;
+        Ok(())
+    }
+
+    /// Set bytes to zeros for given columns from `ix` for `size` records.
+    pub async fn bytes_reset(&self, feed_name: &str, cols: &[String],
+                             ix: usize, size: usize) -> TokioResult<()> {
+        let rowsize = self.rowsize(feed_name, cols).await?;
+        let buffer = vec![0u8; rowsize * size];
+        self._bytes_update(feed_name, cols, ix, size, &buffer).await?;
+        Ok(())
+    }
+
+    /// Get size in bytes of a record having passed columns.
+    pub async fn rowsize(&self, feed_name: &str,
+                         cols: &[String]) -> TokioResult<usize> {
+        let mapping = self.col_map_mapping.read().await;
+        let mut result = 0;
+
+        for col_name in cols.iter() {
+            let col_item = mapping.get(feed_name)
+                .and_then(|map| map.get(col_name))
+                .ok_or::<Error>(ErrorKind::NotFound.into())?;
+            result += col_item.datatype.size();
+        }
+
+        Ok(result)
     }
 
     async fn _data_update(&self, feed_name: &str, ix: usize, ds: &Dataset, 
@@ -542,6 +655,41 @@ impl Conn {
         }
 
         // Ok
+        Ok(())
+    }
+
+    async fn _bytes_update(&self, feed_name: &str, cols: &[String], ix: usize,
+                           size: usize, block: &[u8]) -> TokioResult<()> {
+        // Get mappings
+        let col_map_mapping = self.col_map_mapping.read().await;
+        let seq_mapping = self.seq_mapping.read().await;
+
+        // Collect seq and chunk_size as jobs
+        let mut jobs = Vec::with_capacity(cols.len());
+
+        for col_name in cols.iter() {
+            let col_item = &col_map_mapping[feed_name][col_name];
+            let seq = seq_mapping[feed_name][col_name].clone();
+            let chunk_size = col_item.datatype.size() * size;
+            jobs.push((seq, chunk_size));
+        }
+
+        // Collect update futures
+        let mut tail: &[u8] = block;
+        let mut futs = Vec::with_capacity(jobs.len());
+
+        for (seq, chunk_size) in jobs {
+            let (chunk, rest) = tail.split_at(chunk_size);
+            tail = rest;
+
+            futs.push(async move {
+                seq.lock().await.update(ix, chunk).await
+            });
+        }
+
+        // Run futures
+        try_join_all(futs).await?;
+
         Ok(())
     }
 
